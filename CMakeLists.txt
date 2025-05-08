@@ -11,7 +11,10 @@ add_executable(untitled main.cu
         headers/agent_update.h
         headers/update_matrices.h
         headers/logging.h
-        headers/gaussian_odour.h)
+        headers/gaussian_odour.h
+        headers/beta_sampling.h
+        main.cu
+)
 
 set_target_properties(untitled PROPERTIES
         CUDA_SEPARABLE_COMPILATION ON)

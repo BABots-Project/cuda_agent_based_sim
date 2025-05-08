@@ -2,6 +2,9 @@
 #define UNTITLED_NUMERIC_FUNCTIONS_H
 #include <cuda_runtime.h>
 
+
+
+
 //function to sample from a wrapped cauchy distribution
 __device__ float wrapped_cauchy(float mu, float sigma, curandState* state){
     float u = curand_uniform(state);

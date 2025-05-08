@@ -7,6 +7,21 @@
 #include <cuda_runtime.h>
 #include "numeric_functions.h"
 
+
+//CUDA kernel to update the repulsive pheromone grid and the bacterial lawn grid
+__global__ void updateRepulsivePheromoneAndBacterialLawnGrids(float* repulsive_pheromone, float* bacterial_lawn, int* agent_count_grid) {
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    if (i < N && j < N && i>=0 && j>=0) {
+        float laplacian = fourth_order_laplacian(repulsive_pheromone, i, j);
+        repulsive_pheromone[i*N+j] += DT*(REPULSIVE_PHEROMONE_DIFFUSION_RATE * laplacian + REPULSIVE_PHEROMONE_SECRETION_RATE*agent_count_grid[i*N+j] - REPULSIVE_PHEROMONE_DECAY_RATE*repulsive_pheromone[i*N+j]);
+        if ( repulsive_pheromone[i*N+j]<0)  repulsive_pheromone[i*N+j]=0;
+        bacterial_lawn[i*N+j] += DT*(-BACTERIAL_CONSUMPTION * agent_count_grid[i*N+j]);
+        if (bacterial_lawn[i*N+j]<0) bacterial_lawn[i*N+j]=0;
+    }
+}
+
+
 //CUDA kernel to update all the grids (except the potential and the agent count grid)
 __global__ void updateGrids(float* grid, float* attractive_pheromone, float* repulsive_pheromone, int* agent_count_grid){
     int i = threadIdx.x + blockIdx.x * blockDim.x;

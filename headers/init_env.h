@@ -6,9 +6,32 @@
 #define UNTITLED_INIT_ENV_H
 #include <cuda_runtime.h>
 #include <random>
+
+#include "beta_sampling.h"
 #include "../include/json.hpp"
 using json = nlohmann::json;
 
+struct State {
+    float angle_kappa, angle_mu, speed_alpha, speed_beta, speed_scale, duration_alpha, duration_beta, duration_scale, probability_m, probability_q;
+    float speed_loc, duration_loc;
+    float max_speed, min_speed;
+    float angle_change_mix;
+    int breaking_point; //behavioural switch to go to longer-tailed duration
+    float duration_scale1, duration_scale2; // duration scale parameters before and after the switch
+    float transition_likelihood[N_STATES]; // overall likelihood to transition from state i to j s.t. if i==j it's 0
+    int angle_mu_sign = 1; //the sign for the direction of movement, either -1 (left) or 1 (right)
+};
+
+struct Agent {
+    float x, y, angle, speed, previous_potential, cumulative_potential;  // Position in 2D space
+    int state;  // State of the agent: -1 stopped, 0 moving, 1 pirouette
+    int is_agent_in_target_area;
+    int first_timestep_in_target_area, steps_in_target_area;
+    int substate, previous_substate;
+    bool is_exploring;
+    int state_duration;
+    int last_encounter_with_food;
+};
 
 struct Parameters{
     Parameters() :
@@ -30,7 +53,7 @@ struct Parameters{
     float mus[N_STATES * WORM_COUNT];
     float sigmas[N_STATES * WORM_COUNT];
     float scales[N_STATES * WORM_COUNT];
-    float loop_time_mu, loop_time_sigma, arc_time_mu, arc_time_sigma, line_time_mu, line_time_sigma;
+    float probabilities[N_STATES * WORM_COUNT];
 
 };
 
@@ -63,15 +86,6 @@ struct ExplorationState{
 };
 
 
-struct Agent {
-    float x, y, angle, speed, previous_potential, cumulative_potential;  // Position in 2D space
-    int state;  // State of the agent: -1 stopped, 0 moving, 1 pirouette
-    int is_agent_in_target_area;
-    int first_timestep_in_target_area, steps_in_target_area;
-    int substate, previous_substate;
-    bool is_exploring;
-};
-
 float sample_from_exponential(float lambda){
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -96,6 +110,196 @@ float get_acceptable_white_noise(float mean, float stddev, float bound=1.0f){
     return white_noise;
 }
 
+void populate_plausible_states(State* source, State* target) {
+    std::random_device rd;
+    std::mt19937 gen(rd()); // Standard mersenne_twister_engine
+
+    for (int i = 0; i < WORM_COUNT; i++) {
+        for (int j = 0; j < N_STATES; j++) {
+            int idx = i * N_STATES + j;
+
+            auto uniform = [&](float base, float maximum_value = -1.0f, float minimum_value = -1.0f) {
+                return base;
+                float multiplier = 1.0f;
+
+                if (base == -1.0f) {
+                    return -1.0f;
+                }
+
+                float upper_bound = (maximum_value < 0) ? base * multiplier : maximum_value;
+                float lower_bound = (minimum_value < 0) ? base / multiplier : minimum_value;
+
+                if (base < 0) {
+                    std::swap(lower_bound, upper_bound);
+                }
+
+                std::uniform_real_distribution<float> dist(lower_bound, upper_bound);
+                float res = dist(gen);
+
+                // Add noise if res is very close to 0
+                /*if (std::abs(res) < 1e-5f) {
+                    std::uniform_real_distribution<float> noise_dist(-1e-3f, 1e-3f);  // Define new distribution
+                    res += noise_dist(gen);  // Sample noise separately
+                }*/
+
+                return res;
+            };
+
+
+            target[idx].angle_kappa = uniform(source[j].angle_kappa);
+            target[idx].angle_mu = uniform(source[j].angle_mu);
+            target[idx].angle_change_mix = uniform(source[j].angle_change_mix);
+            target[idx].speed_alpha = uniform(source[j].speed_alpha);
+            target[idx].speed_beta = uniform(source[j].speed_beta);
+            //target[idx].speed_scale = uniform(source[j].speed_scale);//, MAX_ALLOWED_SPEED*1e3);
+            //target[idx].speed_loc = uniform(source[j].speed_loc);//, MAX_ALLOWED_SPEED*1e3);
+            target[idx].duration_alpha = uniform(source[j].duration_alpha);
+            target[idx].duration_beta = uniform(source[j].duration_beta);
+            target[idx].duration_scale = uniform(source[j].duration_scale);//, N_STEPS/2);
+            target[idx].duration_loc = uniform(source[j].duration_loc);//, N_STEPS/2);
+            target[idx].probability_m = uniform(source[j].probability_m);
+            target[idx].probability_q = uniform(source[j].probability_q);
+            target[idx].max_speed = uniform(source[j].max_speed);//, MAX_ALLOWED_SPEED*1e3, target[idx].speed_scale * 1e-3);
+            target[idx].min_speed = uniform(source[j].min_speed);//,, MAX_ALLOWED_SPEED* 1e3);
+            /*while ((target[idx].max_speed - target[idx].min_speed)/target[idx].max_speed < 0.5) {
+                target[idx].min_speed = 0.0f;
+                target[idx].max_speed = uniform(source[j].max_speed);//,, MAX_ALLOWED_SPEED* 1e3);
+            }*/
+            target[idx].breaking_point = uniform(source[j].breaking_point);//,, N_STEPS/2); // Assuming it remains unchanged
+            target[idx].duration_scale1 = uniform(source[j].duration_scale1);//,, N_STEPS/2);
+            target[idx].duration_scale2 = uniform(source[j].duration_scale2);//,, N_STEPS/2);
+           /* printf("State %d has speed_alpha = %f, speed_beta = %f, speed_scale = %f, max_speed = %f, min_speed = %f\n", j,  target[idx].speed_alpha,  target[idx].speed_beta,  target[idx].speed_scale, target[idx].max_speed, target[idx].min_speed);
+            printf("\tduration_alpha = %f, duration_beta = %f, duration_scale = %f\n", target[idx].duration_alpha, target[idx].duration_beta, target[idx].duration_scale);
+            printf("\tbreaking_point=%d, duration_scale1=%f, duration_scale2=%f\n", target[idx].breaking_point, target[idx].duration_scale1, target[idx].duration_scale2);
+*/
+            // Transition likelihood matrix
+            for (int k = 0; k < N_STATES; k++) {
+                target[idx].transition_likelihood[k] = (j != k) ? uniform(source[j].transition_likelihood[k]) : 0.0f;
+  //              printf("\t\ttransition to %d: %f\n", k, target[idx].transition_likelihood[k]);
+            }
+            std::uniform_real_distribution<float> dist(0, 1);
+            float res = dist(gen);
+            if (res > 0.5) {
+                target[idx].angle_mu_sign = -1;
+            } else {
+                target[idx].angle_mu_sign = 1;
+            }
+            //target[idx].angle_mu_sign = 1;
+        }
+    }
+}
+
+void load_state_data(State* states, const char* filename) {
+    printf("parsing json\n");
+    std::ifstream file(filename);
+    json data = json::parse(file);
+
+    for (int i = 0; i < N_STATES; i++) {
+        states[i].angle_kappa = data[state_ids[i]]["angle"]["kappa"];
+        states[i].angle_mu = data[state_ids[i]]["angle"]["mu"];
+        states[i].angle_change_mix = data[state_ids[i]]["angle"]["mix"];
+        states[i].speed_alpha = data[state_ids[i]]["speed"]["alpha"];
+        states[i].speed_beta = data[state_ids[i]]["speed"]["beta"];
+        //states[i].speed_scale = data[state_ids[i]]["speed"]["scale"];
+        if (states[i].speed_alpha == -1.0f) {
+            states[i].speed_alpha = 1.0f;
+        }
+        if (states[i].speed_beta == -1.0f) {
+            states[i].speed_beta = 1.0f;
+        }
+        /*if (states[i].speed_scale == -1.0f) {
+            states[i].speed_scale = MAX_ALLOWED_SPEED;
+        } /*else {
+            states[i].speed_scale *= 1e-3;
+        }*/
+        states[i].max_speed = data[state_ids[i]]["speed"]["max_value"];
+        states[i].min_speed = data[state_ids[i]]["speed"]["min_value"];
+        //states[i].speed_loc =  data[state_ids[i]]["speed"]["loc"];
+        /*if (states[i].speed_loc == -1.0f) {
+            states[i].speed_loc = 0.0f;
+        } /*else {
+            states[i].speed_loc *= 1e-3;
+        }*/
+        states[i].probability_m = data[state_ids[i]]["probability"]["m"];
+        states[i].probability_q = data[state_ids[i]]["probability"]["q"];
+        if (states[i].max_speed == -1.0f) {
+            states[i].max_speed = MAX_ALLOWED_SPEED;
+        }
+        /*else {
+            states[i].max_speed =  states[i].max_speed * 1e-3;
+        }*/
+        if (states[i].min_speed == -1.0f) {
+            states[i].min_speed = 0.0f;
+        } /*else {
+            states[i].min_speed *= 1e-3;
+        }*/
+        if ((states[i].max_speed - states[i].min_speed) / states[i].max_speed < 0.5) {
+            states[i].min_speed = 0.0f;
+        }
+        //printf("State %d has speed_alpha = %f, speed_beta = %f, speed_scale = %f, max_speed = %f, min_speed = %f\n", i,  states[i].speed_alpha,  states[i].speed_beta,  states[i].speed_scale, states[i].max_speed, states[i].min_speed);
+        states[i].duration_alpha = data[state_ids[i]]["duration"]["alpha"];
+        states[i].duration_beta = data[state_ids[i]]["duration"]["beta"];
+        states[i].duration_scale = data[state_ids[i]]["duration"]["scale"];
+        states[i].duration_loc = data[state_ids[i]]["duration"]["loc"];
+        /*if (states[i].duration_scale!=-1.0f) {
+            states[i].duration_scale/=4.0f;
+        }*/
+        printf("\tduration_alpha = %f, duration_beta = %f, duration_scale = %f, duration_loc = %f\n", states[i].duration_alpha, states[i].duration_beta, states[i].duration_scale, states[i].duration_loc);
+        states[i].breaking_point = data[state_ids[i]]["duration"]["breaking_point"];
+        /*if (states[i].breaking_point!=-1.0f) {
+            states[i].breaking_point /= 4.0f;
+        }*/
+        states[i].duration_scale1 = data[state_ids[i]]["duration"]["scale1"];
+        /*if (states[i].duration_scale1!=-1.0f) {
+            states[i].duration_scale1/=4.0f;
+        }*/
+        states[i].duration_scale2 = data[state_ids[i]]["duration"]["scale2"];
+        /*if (states[i].duration_scale2!=-1.0f) {
+            states[i].duration_scale2/=4.0f;
+        }*/
+
+        for (int j=0; j<N_STATES; j++) {
+            if (i==j) {
+                states[i].transition_likelihood[j]=0.0f;
+            } else {
+                states[i].transition_likelihood[j]=data[state_ids[i]]["transition_likelihood"][state_ids[j]];
+            }
+        }
+
+    }
+    file.close();
+}
+
+void load_statistical_data_parameters(Parameters *params, const char *filename) {
+    std::ifstream file(filename);
+    json data = json::parse(file);
+    //the file should be formatted as follows:
+    //for each worm, an ID, then inside [ID] there is
+    //<state_name>:
+    //              probabilities
+    //              mu
+    //              kappa
+    //              scale
+    //              sigma
+    //              duration_mu
+    //              duration_sigma
+    for (int i = 0; i < WORM_COUNT; i++) {
+        std::string agent_id = std::to_string(i);
+        const auto& agent_params = data[agent_id];
+        for (int j = 0; j < N_STATES; j++) {
+            for (int k = 0; k < N_STATES; k++) {
+                params->probabilities[i*N_STATES*N_STATES+j*N_STATES+k] = agent_params["probabilities"][j*N_STATES+k];
+            }
+            params->kappas[i*N_STATES+j] = agent_params["kappa"];
+            params->mus[i*N_STATES+j] = agent_params["mu"];
+            params->sigmas[i*N_STATES+j] = agent_params["sigma"];
+            params->scales[i*N_STATES+j] = agent_params["scale"];
+        }
+    }
+    file.close();
+
+}
+
 void loadSpeedParameters(Parameters* params, const char* filename){
     std::ifstream file(filename);
     if(!file.is_open()){
@@ -109,13 +313,6 @@ void loadSpeedParameters(Parameters* params, const char* filename){
             params->scales[i*N_STATES+j] = data[base_idx].get<float>();
             params->sigmas[i*N_STATES+j] = data[base_idx + 1].get<float>();
         }
-
-        params->loop_time_mu = data[N_STATES * 2].get<float>();
-        params->loop_time_sigma = data[N_STATES * 2 + 1].get<float>();
-        params->arc_time_mu = data[N_STATES * 2 + 2].get<float>();
-        params->arc_time_sigma = data[N_STATES * 2 + 3].get<float>();
-        params->line_time_mu = data[N_STATES * 2 + 4].get<float>();
-        params->line_time_sigma = data[N_STATES * 2 + 5].get<float>();
     }
     file.close();
 }
@@ -138,14 +335,6 @@ void loadBatchSingleAgentParameters(Parameters* params, const char* filename, in
             params->mus[i*N_STATES + j] = agent_params[base_idx].get<float>();
             params->kappas[i*N_STATES + j] = agent_params[base_idx + 1].get<float>();
         }
-        // Access time-related parameters after the states
-        int time_base_idx = N_STATES*2; // Time parameters start after the states
-        params->loop_time_mu = agent_params[time_base_idx].get<float>();
-        params->loop_time_sigma = agent_params[time_base_idx + 1].get<float>();
-        params->arc_time_mu = agent_params[time_base_idx + 2].get<float>();
-        params->arc_time_sigma = agent_params[time_base_idx + 3].get<float>();
-        params->line_time_mu = agent_params[time_base_idx + 4].get<float>();
-        params->line_time_sigma = agent_params[time_base_idx + 5].get<float>();
     }
     file.close();
 }
@@ -197,15 +386,6 @@ void loadOptimisedParameters13Agents(Parameters* params, const char* filename){
             params->mus[i * N_STATES + j] = agent_params[base_idx].get<float>();
             params->kappas[i * N_STATES + j] = agent_params[base_idx + 1].get<float>();
         }
-
-        // Access time-related parameters after the states
-        int time_base_idx = N_STATES * 2; // Time parameters start after the states
-        params->loop_time_mu = agent_params[time_base_idx].get<float>();
-        params->loop_time_sigma = agent_params[time_base_idx + 1].get<float>();
-        params->arc_time_mu = agent_params[time_base_idx + 2].get<float>();
-        params->arc_time_sigma = agent_params[time_base_idx + 3].get<float>();
-        params->line_time_mu = agent_params[time_base_idx + 4].get<float>();
-        params->line_time_sigma = agent_params[time_base_idx + 5].get<float>();
     }
 
     file.close();
@@ -225,14 +405,6 @@ void loadParameters(Parameters* params, const char* filename, bool load_times=tr
         int base_idx = j * 2;
         params->mus[j] = data[base_idx].get<float>();
         params->kappas[j] = data[base_idx + 1].get<float>();
-    }
-    if(load_times) {
-        params->loop_time_mu = data[N_STATES * 2].get<float>();
-        params->loop_time_sigma = data[N_STATES * 2 + 1].get<float>();
-        params->arc_time_mu = data[N_STATES * 2 + 2].get<float>();
-        params->arc_time_sigma = data[N_STATES * 2 + 3].get<float>();
-        params->line_time_mu = data[N_STATES * 2 + 4].get<float>();
-        params->line_time_sigma = data[N_STATES * 2 + 5].get<float>();
     }
     file.close();
 }
@@ -278,7 +450,7 @@ void set_probabilities(ExplorationState* state, int timestep){
             state->probabilities[3] = negative_correlation * pirouette_probability;
             state->probabilities[4] = positive_correlation * omega_probability;
             state->probabilities[5] = non_correlated * reverse_probability;
-            state->probabilities[6] = non_correlated * pause_probability;
+            //state->probabilities[6] = non_correlated * pause_probability;
             break;
         }
         case 1: {
@@ -289,7 +461,7 @@ void set_probabilities(ExplorationState* state, int timestep){
             state->probabilities[3] = non_correlated * pirouette_probability;
             state->probabilities[4] = positive_correlation * omega_probability;
             state->probabilities[5] = negative_correlation * reverse_probability;
-            state->probabilities[6] = non_correlated * pause_probability;
+            //state->probabilities[6] = non_correlated * pause_probability;
             break;
         }
         case 2: {
@@ -301,7 +473,7 @@ void set_probabilities(ExplorationState* state, int timestep){
             state->probabilities[3] = non_correlated * pirouette_probability;
             state->probabilities[4] = negative_correlation * omega_probability;
             state->probabilities[5] = non_correlated * reverse_probability;
-            state->probabilities[6] = non_correlated * pause_probability;
+            //state->probabilities[6] = non_correlated * pause_probability;
             break;
         }
         default: {
@@ -311,7 +483,7 @@ void set_probabilities(ExplorationState* state, int timestep){
             state->probabilities[3] = non_correlated * pirouette_probability;
             state->probabilities[4] = non_correlated * omega_probability;
             state->probabilities[5] = non_correlated * reverse_probability;
-            state->probabilities[6] = non_correlated * pause_probability;
+            //state->probabilities[6] = non_correlated * pause_probability;
             //avoid self loops for now
             state->probabilities[state->id] = 0.0f;
             break;
@@ -334,6 +506,7 @@ void set_probabilities(ExplorationState* state, int timestep){
     if (total_prob > 0.0f) {
         for (int j = 0; j < N_STATES; j++) {
             state->probabilities[j] /= total_prob;
+            state->angle_mu_sign = 1;
         }
     }
 }
@@ -379,44 +552,11 @@ int initProbabilitiesWithParams(ExplorationState* states, Parameters* params) {
             states[i*N_STATES + j].speed_scale = params->scales[i*N_STATES + j];
             states[i*N_STATES + j].speed_spread = params->sigmas[i*N_STATES + j];
 
-            /*if(j<3 || j==5){
-                states[i*N_STATES + j].speed_scale = OFF_FOOD_SPEED_SCALE_FAST;
-                states[i*N_STATES + j].speed_spread = OFF_FOOD_SPEED_SHAPE_FAST;
-            }*/
-            states[i*N_STATES + j].max_duration = N_STEPS;
-            switch(j){
-                case 0:
 
-                    states[i*N_STATES + j].duration_mu = params->loop_time_mu;
-                    states[i*N_STATES + j].duration_sigma = params->loop_time_sigma;
-
-
-                    break;
-                case 1:
-                    states[i*N_STATES + j].duration_mu = params->arc_time_mu;
-                    states[i*N_STATES + j].duration_sigma = params->arc_time_sigma;
-
-                    break;
-                case 2:
-                    states[i*N_STATES + j].duration_mu = params->line_time_mu;
-                    states[i*N_STATES + j].duration_sigma = params->line_time_sigma;
-
-            }
         }
         //printf("Setting up durations\n");
         // Set probabilities for each state after initialization
         for (int j = 0; j < N_STATES; j++) {
-            //printf("State id: %d\n", j);
-            if(j<3) {
-                int acceptable_duration = get_duration(states[i * N_STATES + j].duration_mu, states[i * N_STATES + j].duration_sigma, states[i * N_STATES + j].max_duration);
-                if (acceptable_duration > 0.0f) {states[i * N_STATES + j].duration = acceptable_duration;}
-                else {
-                    printf("Could not find acceptable duration for state %d: %d\n", j, states[i * N_STATES + j].duration);
-                    printf("parameters: MU %f   SIGMA %f    duration %d\n", states[i * N_STATES + j].duration_mu, states[i * N_STATES + j].duration_sigma, states[i * N_STATES + j].max_duration);
-                    return -1;
-                }
-
-            }
             set_probabilities(&states[i*N_STATES + j], 0);
         }
     }
@@ -434,7 +574,7 @@ void initProbabilities(ExplorationState* states) {
             // Explicitly initialize each exploration state
             states[i*N_STATES + j] = ExplorationState();
             states[i*N_STATES + j].id = j;
-
+            states[i*N_STATES + j].angle_mu_sign = 1;
             if(j<3 || j==5){ //crawling states
                 states[i*N_STATES + j].speed_scale = OFF_FOOD_SPEED_SCALE_FAST;
                 states[i*N_STATES + j].speed_spread = OFF_FOOD_SPEED_SHAPE_FAST;
@@ -520,22 +660,26 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
             agents[id].y = curand_uniform(&states[id]) * HEIGHT;
         } else {
             //initialise in a random position inside the square centered at WIDTH/4, HEIGHT/4 with side length DX*INITIAL_AREA_NUMBER_OF_CELLS
-           agents[id].x = WIDTH / 4 - INITIAL_AREA_NUMBER_OF_CELLS/2 * DX + curand_uniform(&states[id]) * INITIAL_AREA_NUMBER_OF_CELLS * DX;
+           agents[id].x = WIDTH / 2 - INITIAL_AREA_NUMBER_OF_CELLS/2 * DX + curand_uniform(&states[id]) * INITIAL_AREA_NUMBER_OF_CELLS * DX;
            agents[id].y = HEIGHT / 2 - INITIAL_AREA_NUMBER_OF_CELLS/2  * DX + curand_uniform(&states[id]) * INITIAL_AREA_NUMBER_OF_CELLS * DX;
+            //agents[id].x = 43.000000;
+            //agents[id].y = 30.000000;
         }
         //generate angle in the range [-pi, pi]
         agents[id].angle =(2.0f * curand_uniform(&states[id]) - 1.0f) * M_PI;
-        agents[id].speed = SPEED;
-        agents[id].state = 1;
+        agents[id].speed = 0.0f;
+        float generated_value = curand_uniform(&states[id]);
+        agents[id].state = static_cast<int>(generated_value*(N_STATES));
         agents[id].previous_potential = 0.0f;
         agents[id].cumulative_potential = 0.0f;
         agents[id].is_agent_in_target_area = 0;
         agents[id].first_timestep_in_target_area = -1;
         agents[id].steps_in_target_area = 0;
         agents[id].is_exploring = true;
-        agents[id].substate = (int) curand_uniform(&states[id]) * N_STATES;
+        agents[id].substate = static_cast<int>(curand_uniform(&states[id]) * N_STATES);
         agents[id].previous_substate = 0;
-
+        agents[id].state_duration = -1;
+        agents[id].last_encounter_with_food = 0;
     }
 }
 
@@ -606,6 +750,21 @@ __global__ void initAttractiveAndRepulsivePheromoneGrid(float* attractive_pherom
     }
 }
 
+__global__ void initRepulsivePheromoneGrid(float* repulsive_pheromone, int* agent_density_grid) {
+    int i = threadIdx.x + blockIdx.x * blockDim.x;
+    int j = threadIdx.y + blockIdx.y * blockDim.y;
+    if (i < N && j < N) {
+        if(agent_density_grid[i * N + j] == 0){
+            repulsive_pheromone[i * N + j] = 0.0f;
+        }
+        else {
+            repulsive_pheromone[i * N + j] = REPULSIVE_PHEROMONE_SECRETION_RATE * REPULSIVE_PHEROMONE_DECAY_RATE *
+                                             (float) agent_density_grid[i * N + j] / (DX * DX);
+        }
+        //printf("Repulsive pheromone at (%d, %d): %f\n", i, j, repulsive_pheromone[i * N + j]);
+    }
+}
+
 //CUDA kernel to initialise the agent count grid
 __global__ void initAgentDensityGrid(int* agent_count_grid, Agent* agents, int worm_count){
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -622,4 +781,19 @@ __global__ void initAgentDensityGrid(int* agent_count_grid, Agent* agents, int w
         }
     }
 }
+
+
+void initBacterialLawnSquareHost(float * bacterial_lawn, int x_centers[N_FOOD_SPOTS], int y_centers[N_FOOD_SPOTS]) {
+    for (int k=0; k<N_FOOD_SPOTS; k++) {
+        float density = bacterial_densities[k];
+        float x_center = x_centers[k];
+        float y_center = y_centers[k];
+        for (int i=x_center-SPOT_SIZE/2; i<x_center+SPOT_SIZE/2; i++) {
+            for (int j=y_center-SPOT_SIZE/2; j<y_center+SPOT_SIZE/2; j++) {
+                bacterial_lawn[i*N+j] = density;
+            }
+        }
+    }
+}
+
 #endif //UNTITLED_INIT_ENV_H
