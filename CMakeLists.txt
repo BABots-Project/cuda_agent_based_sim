@@ -14,6 +14,7 @@ add_executable(untitled main.cu
         headers/gaussian_odour.h
         headers/beta_sampling.h
         main.cu
+        headers/agent_update.h
 )
 
 set_target_properties(untitled PROPERTIES

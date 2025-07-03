@@ -233,8 +233,8 @@ __global__ void updateAgentState(Agent* agents, curandState* local_state, State*
                     if (i==agent_state)
                         probabilities[i] = 0.0f;
                     else {
-                        probabilities[i] = fmaxf((states[agent_id * N_STATES + i].probability_m * static_cast<float>(timestep ) / (120.0f/ DT) + states[agent_id * N_STATES + i].probability_q), 0.0f);// / (120.0f / DT), 0.0f);
-                        probabilities[i]*=  fmaxf(states[agent_id * N_STATES + agent_state].transition_likelihood[i], 0.0f);
+                        //probabilities[i] = fmaxf((states[agent_id * N_STATES + i].probability_m * static_cast<float>(timestep ) / (120.0f/ DT) + states[agent_id * N_STATES + i].probability_q), 0.0f);// / (120.0f / DT), 0.0f);
+                        probabilities[i] =  fmaxf(states[agent_id * N_STATES + agent_state].transition_likelihood[i], 0.0f);
 
                     }
                     sum_of_probabilities+=probabilities[i];

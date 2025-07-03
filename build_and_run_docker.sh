@@ -12,11 +12,11 @@ SIMULATION_CONTAINER=/sim
 
 # === Build Docker Image ===
 echo "Building Docker image: $IMAGE_NAME"
-sudo docker build -t $IMAGE_NAME $DOCKERFILE_PATH
+docker build -t $IMAGE_NAME $DOCKERFILE_PATH
 
 # === Run the container ===
 echo "Running container with GPU support..."
-sudo docker run --rm --privileged --gpus all \
+docker run --rm --privileged --gpus all \
     -v "$STATE_ESTIMATIONS_HOST":"$STATE_ESTIMATIONS_CONTAINER" \
     -v "$SIMULATION_HOST":"$SIMULATION_CONTAINER" \
     $IMAGE_NAME
