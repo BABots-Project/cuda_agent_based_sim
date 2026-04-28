@@ -14,9 +14,9 @@ __global__ void initialize_rng(curandState* states, unsigned long seed) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
     if (id < WORM_COUNT) {
         // Use a combination of seed, agent ID, and time to ensure unique seeds
-        curand_init(seed + id, 0, 0, &states[id]);
+        //curand_init(seed + id, 0, 0, &states[id]);
+        curand_init(SEED, id, 0, &states[id]);
     }
-    //curand_init(seed + id, id, 0, &states[id]); // Unique seed for each thread
 }
 
 void get_last_error() {
@@ -27,88 +27,120 @@ void get_last_error() {
 }
 
 int main(int argc, char* argv[]) {
-    //const char *extracted_params_filename = "/home/nema/PycharmProjects/behavioral_flagging2/state_estimations/auto_data.json";
-    //const char* target_json = "/home/nema/cuda_agent_based_sim/auto_agents_100_all_data.json";
-    const char *extracted_params_filename = "/state_estimations/auto_data.json";
-    const char* target_json = "/sim/auto_agents_1000_all_data.json";
+    const char *extracted_params_filename = "/state_estimations/behavior_distributions_off_food.json";
+    const char *transition_params_filename = "/state_estimations/l2.json";
+    const char *exit_params_filename = "/state_estimations/l1.json";
+    const char* transition_factors_filename = "/state_estimations/transition_factors.json";
+    const char* bias_filename = "/state_estimations/transition_angle_bias.json";
+    const char* duration_lognormal_params_filename = "/state_estimations/duration_lognormal_params_all_conditions.json";
+    const char* p_roam_filename = "/state_estimations/p_roam_all_conditions.json";
+	const char* duration_betaprime_params_filename = "/state_estimations/duration_params.json";
+    const char* joint_distribution_file_name = "/state_estimations/joint_distributions_off_food.json";
 
-    State* d_states, *h_states = new State[N_STATES * WORM_COUNT];
-    State* loaded_states = new State[N_STATES];
+    // Device-side accumulators (allocated once before the sim loop)
+    int*   d_neighbor_sum;    // one int per agent
+    int*   d_timestep_count;  // scalar
+    cudaMalloc(&d_neighbor_sum, WORM_COUNT * sizeof(int));
+    cudaMalloc(&d_timestep_count, sizeof(int));
+    cudaMemset(d_neighbor_sum, 0, WORM_COUNT * sizeof(int));
+    cudaMemset(d_timestep_count, 0, sizeof(int));
+    BehaviorDistributionHost* h_states = new BehaviorDistributionHost[N_STATES];
+    TransitionBiasHost* h_biases = new TransitionBiasHost[N_STATES*N_STATES];
+    TransitionModelHost* h_transitions = new TransitionModelHost[N_STATES*N_STATES];
+    TransitionModelHost* h_exit = new TransitionModelHost[N_STATES];
+    TransitionFactorHost* h_transition_factors = new TransitionFactorHost[N_STATES*N_STATES];
+    PRoamHost* h_proam = new PRoamHost;
     Agent* d_agents, *h_agents = new Agent[WORM_COUNT];
-    curandState* d_curand_states, *d_states_grids;
+    curandState* d_curand_states, *d_states_grids; //?
     size_t size = WORM_COUNT * sizeof(Agent);
     auto* positions = new float[WORM_COUNT * N_STEPS * 2]; // Matrix to store positions (x, y) for each agent at each timestep
     auto* angles = new float[WORM_COUNT* N_STEPS]; // Matrix to store angles for each agent at each timestep
     auto* velocities = new float[WORM_COUNT * N_STEPS]; // Matrix to store velocities for each agent at each timestep
     auto* sub_states = new int[WORM_COUNT * N_STEPS]; // Matrix to store substates for each agent at each timestep
+	auto* dc = new float[WORM_COUNT * N_STEPS * N_STATES * N_STATES]; // Matrix to store dc_int[tau] for each agent at each timestep for each state transition
+	auto* c = new float[WORM_COUNT * N_STEPS]; // Matrix to store chemical concentrations for each agent at each timestep
+	float frequencies_host[N_STATES];
+    int agent_id = 0;
+    char target_json[256];
+    char label_sequence_filename[256];
+    if (argc >= 2) {
+        agent_id = atoi(argv[1]);
+        snprintf(target_json, sizeof(target_json), "/sim/simulated_worm_%d.json", agent_id);
+        snprintf(label_sequence_filename, sizeof(label_sequence_filename),
+                 "/state_estimations/off_food_label_sequences/worm_%d_labels.json", agent_id);
 
-    //float* d_repulsive_pheromone, * h_repulsive_pheromone = new float[N*N]; //device and host grids for the repulsive pheromone secreted
-    //float* d_bacterial_lawn, *h_bacterial_lawn = new float[N*N]; //device and host grids for the bacterial density (food)
-    //int* d_agent_count, *h_agent_count = new int[N*N]; //device and host grids for the number of agents inside each grid segment
+        cudaMemcpyToSymbol(d_agent_kappas, agent_kappas, sizeof(agent_kappas));
+        cudaMemcpyToSymbol(d_agent_periods, agent_periods, sizeof(agent_periods));
+        cudaMemcpyToSymbol(d_agent_amplitudes, agent_amplitudes, sizeof(agent_amplitudes));
+      }
+    else{
+        snprintf(target_json, sizeof(target_json), "/sim/auto_agents_100_all_data.json");
+        //snprintf(label_sequence_filename, sizeof(label_sequence_filename),"/state_estimations/off_food_label_sequences/worm_45_labels.json");
 
-    //float * repulsive_pheromone_history = new float[N*N*N_STEPS];
-    //float * bacterial_lawn_history = new float[N*N*N_STEPS];
+     }
+	DurationLognormalHost duration_lognormal_params_host[N_STATES], *h_roaming_duration = new DurationLognormalHost;
+	StateParams* d_params = nullptr;
+	load_distributions(
+    duration_betaprime_params_filename,
+    joint_distribution_file_name,
+    N_STATES,
+    &d_params);
 
+
+
+    printf("Allocating memory on device...\n");
     cudaMalloc(&d_agents, size);
     cudaMalloc(&d_curand_states, WORM_COUNT * sizeof(curandState));
-    cudaMalloc(&d_states, N_STATES * sizeof(State) * WORM_COUNT);
-    /*cudaMalloc(&d_repulsive_pheromone, N*N*sizeof(float));
-    cudaMalloc(&d_bacterial_lawn, N*N*sizeof(float));
-    cudaMalloc(&d_agent_count, N*N*sizeof(int));*/
 
     initialize_rng<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_curand_states, SEED);
     get_last_error();
     cudaDeviceSynchronize();
-    initAgents<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, time(NULL), WORM_COUNT);
+    initAgents<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, time(NULL), WORM_COUNT, agent_id);
     //printf("Initializing agents\n");
     get_last_error();
     cudaDeviceSynchronize();
     cudaMemcpy(h_agents, d_agents, size, cudaMemcpyDeviceToHost);
 
+    /*load_p_roam(h_proam, p_roam_filename);
+    upload_proam(h_proam);
     //load data of single agent into loaded_states
-    load_state_data(loaded_states, extracted_params_filename);
-    //h_states needs to be set by sampling from loaded_states
-    populate_plausible_states(loaded_states, h_states);
-    cudaMemcpy(d_states, h_states, WORM_COUNT*N_STATES*sizeof(State), cudaMemcpyHostToDevice);
+    printf("Loading state data from file...\n");*/
+    load_exit_data(h_exit, exit_params_filename);
+    upload_exit_models(h_exit);
+    load_state_data(h_states, extracted_params_filename, h_proam);
+    printf("Uploading state data to device...\n");
+    upload_distributions(h_states, h_proam);
+    printf("Loading transition data from file...\n");
+    load_transition_data(h_transitions, transition_params_filename, frequencies_host);
+    printf("Uploading transition data to device...\n");
+    upload_transition_models(h_transitions);
+    printf("Loading transition factors from file...\n");
+    load_transition_factors(h_transition_factors, transition_factors_filename);
+    printf("Uploading transition factors to device...\n");
+    upload_transition_factors(h_transition_factors);
+    /*printf("Loading bias data from file...\n");
+    load_transition_biases(h_biases, bias_filename);
+    printf("Uploading bias data to device...\n");
+    upload_biases(h_biases);
+    load_duration_data(duration_lognormal_params_host, duration_lognormal_params_filename, h_roaming_duration);
+    upload_duration_data(duration_lognormal_params_host, h_roaming_duration);*/
+    WormLabelSequence seq;
+	if(agent_id!=0){
+        seq = load_worm_labels_to_device(label_sequence_filename);
+    }
+    cudaMemcpyToSymbol(odor_x0, &h_odor_x0, sizeof(float));
+    cudaMemcpyToSymbol(odor_y0, &h_odor_y0, sizeof(float));
+	cudaMemcpyToSymbol(frequencies, frequencies_host, N_STATES * sizeof(float));
 
     dim3 gridSize((N + BLOCK_SIZE - 1) / BLOCK_SIZE, (N + BLOCK_SIZE - 1) / BLOCK_SIZE);
     dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
-    //initialise the agent count grid
-    /*initAgentDensityGrid<<<gridSize, blockSize>>>(d_agent_count, d_agents, WORM_COUNT);
-    get_last_error();
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_agent_count, d_agent_count, N*N*sizeof(int), cudaMemcpyDeviceToHost);*/
-
-    //initialise the repulsive pheromone grid
-    /*initRepulsivePheromoneGrid<<<gridSize, blockSize>>>(d_repulsive_pheromone, d_agent_count);
-    get_last_error();
-    cudaDeviceSynchronize();
-    cudaMemcpy(h_repulsive_pheromone, d_repulsive_pheromone, N * N * sizeof(float), cudaMemcpyDeviceToHost);*/
-
-    //initialise the bacterial lawn
-    /*float x_circle_center = WIDTH/2, y_circle_center = HEIGHT/2;
-    float delta_angle = 4 * M_PI / N_FOOD_SPOTS;
-    int x_centers[N_FOOD_SPOTS], y_centers[N_FOOD_SPOTS];
-    for (int i=0; i < N_FOOD_SPOTS; i++) {
-        float x = x_circle_center + SPOT_DISTANCE * cos(delta_angle * static_cast<float>(i));
-        float y = y_circle_center + SPOT_DISTANCE * sin(delta_angle * static_cast<float>(i));
-        int x_index = static_cast<int>(x/WIDTH * N);
-        int y_index = static_cast<int>(y/HEIGHT * N);
-        x_centers[i] = x_index;
-        y_centers[i] = y_index;
-        printf("x_index, y_index %d = %d, %d\n", i, x_index, y_index);
-
-    }
-    initBacterialLawnSquareHost(h_bacterial_lawn, x_centers, y_centers);
-    cudaMemcpy(d_bacterial_lawn, h_bacterial_lawn, N*N*sizeof(float), cudaMemcpyHostToDevice);*/
 
     for (int i = 0; i < N_STEPS; ++i) {
-        printf("Step %d\n", i);
-        moveAgents<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, d_states, WORM_COUNT);
+        //printf("Step %d\n", i);
+        moveAgentsCollective<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, WORM_COUNT, i, d_params);
         get_last_error();
         cudaDeviceSynchronize();
         cudaMemcpy(h_agents, d_agents, size, cudaMemcpyDeviceToHost);
-        //cudaMemcpy(h_agent_count, d_agent_count, N*N*sizeof(int), cudaMemcpyDeviceToHost);
 
         for (int j = 0; j < WORM_COUNT; ++j) {
             positions[(i * WORM_COUNT + j) * 2] = h_agents[j].x;
@@ -119,41 +151,59 @@ int main(int argc, char* argv[]) {
             velocities[i * WORM_COUNT + j] = h_agents[j].speed;
 
             sub_states[i * WORM_COUNT + j] = h_agents[j].state;
+
+            for (int tau = 0; tau < N_STATES; ++tau) {
+              for (int tau_next = 0; tau_next < N_STATES; ++tau_next) {
+                dc[((i * WORM_COUNT + j) * N_STATES + tau) * N_STATES + tau_next] = h_agents[j].dc_int[tau * N_STATES + tau_next];
+              }
+
+            //dc[i * WORM_COUNT + j] = h_agents[j].dc_int[0];
+            c[i * WORM_COUNT + j] = h_agents[j].c[0];
         }
-        //printf("Updating state...\n");
-        updateAgentState<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, d_states, i, WORM_COUNT);
+        }
+        //printf("Updating agent state\n");
+        //updateAgentState<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, i, WORM_COUNT, d_params);
+        if(agent_id!=0){
+            updateAgentStateDeterministic<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(
+            d_agents, seq.d_labels, seq.length, i);}
+        else{
+            updateAgentStateCollective<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, i, WORM_COUNT, d_params);
+        }
+        cudaDeviceSynchronize();
+
         get_last_error();
         cudaDeviceSynchronize();
+        cudaError_t err = cudaGetLastError();
+
+        if (err != cudaSuccess)
+        {
+            printf("CUDA error: %s\n", cudaGetErrorString(err));
+        }
         cudaMemcpy(h_agents, d_agents, size, cudaMemcpyDeviceToHost);
 
-        //update the grids
-        /*cudaMemcpy(d_repulsive_pheromone, h_repulsive_pheromone, N*N*sizeof(float), cudaMemcpyHostToDevice);
-        cudaMemcpy(d_bacterial_lawn, h_bacterial_lawn, N*N*sizeof(float), cudaMemcpyHostToDevice);
-        updateRepulsivePheromoneAndBacterialLawnGrids<<<gridSize, blockSize>>>(d_repulsive_pheromone, d_bacterial_lawn, d_agent_count);
-        get_last_error();
-        cudaDeviceSynchronize();
-        cudaMemcpy(h_repulsive_pheromone, d_repulsive_pheromone, N*N*sizeof(float), cudaMemcpyDeviceToHost);
-        cudaMemcpy(h_bacterial_lawn, d_bacterial_lawn, N*N*sizeof(float), cudaMemcpyDeviceToHost);
+        accumulate_neighbors<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, WORM_COUNT, d_neighbor_sum, d_timestep_count);
 
-        //log the grids
-        if (LOG_REPULSIVE_PHEROMONE) {
-            logMatrixToFile("/home/nema/cuda_agent_based_sim/logs/repulsive_pheromone/repulsive_pheromone_step_", h_repulsive_pheromone, N, N, i);
-        }
-        if (LOG_BACTERIAL_LAWN) {
-            logMatrixToFile("/home/nema/cuda_agent_based_sim/logs/bacterial_lawn/bacterial_lawn_step_", h_bacterial_lawn, N, N, i);
-
-        }
-        logIntMatrixToFile("/home/nema/cuda_agent_based_sim/logs/agent_count/agent_count_step_", h_agent_count, N, N, i);
-*/
 
     }
+    // After sim loop
+    std::vector<int> h_neighbor_sum(WORM_COUNT);
+    int h_timestep_count;
+    cudaMemcpy(h_neighbor_sum.data(), d_neighbor_sum, WORM_COUNT * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(&h_timestep_count, d_timestep_count, sizeof(int), cudaMemcpyDeviceToHost);
+
+    float avg_neighbors = 0.0f;
+    for (int i = 0; i < WORM_COUNT; i++)
+        avg_neighbors += (float)h_neighbor_sum[i] / h_timestep_count;
+    avg_neighbors /= WORM_COUNT;
+
     if(LOG_GENERIC_TARGET_DATA) {
-        saveAllDataToJSON(target_json, positions, velocities, angles, h_agents ,WORM_COUNT, N_STEPS, sub_states);
+        saveAllDataToJSON(target_json, positions, velocities, angles, h_agents ,WORM_COUNT, N_STEPS, sub_states, dc, c, avg_neighbors);
     }
+    printf("Logging complete to %s\n", target_json);
 
+    printf("Simulation complete. Cleaning up...\n");
     cudaFree(d_agents);
     cudaFree(d_curand_states);
-    cudaFree(d_states);
     /*cudaFree(d_repulsive_pheromone);
     cudaFree(d_bacterial_lawn);
     cudaFree(d_agent_count);*/

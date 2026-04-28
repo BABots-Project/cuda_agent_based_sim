@@ -10,11 +10,11 @@
 #define WORM_COUNT 1000
 #define N_STEPS 1800
 #define LOGGING_INTERVAL 1
-#define DT 1.0f
+#define DT 0.33f
 #define DEBUG false
-#define ENABLE_RANDOM_INITIAL_POSITIONS false
+#define ENABLE_RANDOM_INITIAL_POSITIONS true
 #define INITIAL_AREA_NUMBER_OF_CELLS 10
-#define ENABLE_MAXIMUM_NUMBER_OF_AGENTS_PER_CELL true
+#define ENABLE_MAXIMUM_NUMBER_OF_AGENTS_PER_CELL false
 #define MAXIMUM_AGENTS_PER_CELL 40
 #define LOG_POTENTIAL false
 #define LOG_GRID false
@@ -29,17 +29,14 @@
 
 
 // Agent parameters
-
-//#define N_STATES 6
-//std::string* state_ids = new std::string[N_STATES]{"sharp_turn", "reversal", "pause", "line", "arc", "loop"};
-//std::string* state_ids = new std::string[N_STATES]{"0", "1", "2", "3", "4", "5"};
-#define N_STATES 5
-std::string* state_ids = new std::string[N_STATES]{"0", "1", "2", "3", "4"};
+#define N_STATES 3
+std::string* state_ids = new std::string[N_STATES]{"0", "1", "2"};
+__constant__ int STATE_MAX_DURATIONS[N_STATES] = {10, 6, 1000};
+int h_STATE_MAX_DURATIONS[N_STATES] = {10, 6, 1000};
 
 #define SENSING_RADIUS 0.01f
 #define SPEED 0.1f
 #define SENSING_RANGE 1
-#define ODOR_THRESHOLD 1e-4f
 #define POTENTIAL_THRESHOLD 1e-4f
 #define ON_FOOD_SPEED_SCALE 0.09f// scale = exp(mu) => mu = log(scale)
 #define ON_FOOD_SPEED_SHAPE 0.49f// shape = sigma = 0.5 these values match the tracking data with a KS test 73% of the time < 0.05 and a p-value > 0.05 33% of the time
@@ -66,18 +63,20 @@ std::string* state_ids = new std::string[N_STATES]{"0", "1", "2", "3", "4"};
 #define PIROUETTE_TO_RUN_THRESHOLD 1e-4f
 #define AUTO_TRANSITION_PROBABILITY_THRESHOLD 0.15f
 #define KAPPA 7.5f
-#define MAX_ALLOWED_SPEED 0.6f
+#define MAX_ALLOWED_SPEED 0.5f
 
 // Odor parameters
+#define ODOR_THRESHOLD 1e-20f
+#define ODOR_T0 10.0f // in seconds, the t0 of the diffusion process
 #define MU_X 45.0f      // Mean x of the Gaussian
 #define MU_Y 40.0f      // Mean y of the Gaussian
 #define A 0.5f         // Amplitude of the Gaussian
 #define SIGMA_X 10.0f   // Standard deviation in x direction
 #define SIGMA_Y 10.0f   // Standard deviation in y direction
 #define TARGET_AREA_SIDE_LENGTH 40
-#define MAX_CONCENTRATION 0.0f
+#define MAX_CONCENTRATION 0.01f
 #define GAMMA 0.0001f
-#define DIFFUSION_CONSTANT 0.005f //more than 0.01, it explodes
+#define DIFFUSION_CONSTANT 2.52e-2f //
 #define ATTRACTION_STRENGTH 0.0282f
 #define ATTRACTION_SCALE 1.0f
 

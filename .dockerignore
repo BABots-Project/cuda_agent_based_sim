@@ -1,0 +1,20 @@
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+
+# Docker files themselves
+Dockerfile*
+*.tar
+*.sh
+*.mp4
+*.json
+
+# Editor/OS junk
+.git/
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+.DS_Store

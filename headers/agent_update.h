@@ -12,168 +12,170 @@
 #include "beta_sampling.h"
 #include "gaussian_odour.h"
 #include "numeric_functions.h"
-// Function to sample from a von Mises distribution
-__device__ float sample_from_von_mises(float mu, float kappa, curandState* state) {
-    // Handle kappa = 0 (uniform distribution)
-    if (kappa < 1e-6) {
-        return mu + (2.0f * M_PI * curand_uniform(state)) - M_PI; // Random uniform sample
-    }
 
-    // Step 1: Setup variables
-    float a = 1.0f + sqrt(1.0f + 4.0f * kappa * kappa);
-    float b = (a - sqrt(2.0f * a)) / (2.0f * kappa);
-    float r = (1.0f + b * b) / (2.0f * b);
+__device__ int select_next_state(
+    float* probabilities,
+    curandState* rng,
+    int num_states)
+{
+    float r = curand_uniform(rng);
 
-    /*std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<float> uniform_dist(0.0f, 1.0f);
-    */
-    while (true) {
-        // Step 2: Generate random variables
-        float u1 = abs(curand_uniform(state));
-        float z = cos(M_PI * u1);
-        float f = (1.0f + r * z) / (r + z);
-        float c = kappa * (r - f);
+    float cumulative = 0.0f;
 
-        // Step 3: Generate random variable u2
-        float u2 = abs(curand_uniform(state));
+    for (int i = 0; i < num_states; i++)
+    {
+        cumulative += probabilities[i];
 
-        // Step 4: Accept/reject step
-        if (u2 < c * (2.0f - c) || u2 <= c * exp(1.0f - c)) {
-            // Step 5: Generate final angle sample
-            float u3 = abs(curand_uniform(state));
-            float theta = (u3 < 0.5f) ? acos(f) : -acos(f);
-            float result = mu + theta;  // Return the sample from von Mises
-            if (result > M_PI) {
-                result -= 2.0f * M_PI;
-            } else if (result < -M_PI) {
-                result += 2.0f * M_PI;
-            }
-            return result;
-        }
-    }
-}
-
-__device__ int select_next_state(float* probabilities, curandState* local_state, int num_states) {
-    // Generate a random value between 0 and 1
-    float random_val = curand_uniform(local_state);
-
-    // Cumulative probability tracking
-    float cumulative_prob = 0.0f;
-
-    // Iterate through probabilities to select state
-    for (int i = 0; i < num_states; i++) {
-        cumulative_prob += probabilities[i];
-        // If random value is less than cumulative probability, select this state
-        if (random_val <= cumulative_prob) {
+        if (r <= cumulative)
             return i;
+    }
+
+    // fallback if rounding errors occur
+    return num_states - 1;
+}
+
+__device__ float sample_betaprime(float alpha, float beta, float scale,
+                                   curandState* rng) {
+    // X ~ Gamma(alpha), Y ~ Gamma(beta), then X/Y ~ BetaPrime(alpha,beta)
+    float x = sample_gamma_device(rng, alpha);
+    float y = sample_gamma_device(rng, beta);
+    return (x / y) * scale;
+}
+
+// ---- Alias draw from a JointTable ------------------------------------
+__device__ void alias_draw(const JointTable* table, curandState* rng,
+                            float* out_speed, float* out_angle) {
+    int   i = (int)(curand_uniform(rng) * table->n);   // uniform bin
+    float u =       curand_uniform(rng);
+    int   idx = (u < table->prob[i]) ? i : table->alias[i];
+    *out_speed = table->obs[idx * 2];
+    *out_angle = table->obs[idx * 2 + 1];
+}
+
+// ---- Interpolated draw (point iv) ------------------------------------
+__device__ void draw_speed_angle(const StateParams* sp, int t_star,
+                                  curandState* rng,
+                                  float* out_speed, float* out_angle) {
+    // Binary search for t0, t1 bracketing t_star
+    int lo = 0, hi = sp->n_durations - 1;
+
+    // exact match
+    // (linear scan is fine for small n_durations; replace with bsearch if needed)
+    for (int i = 0; i < sp->n_durations; i++) {
+        if (sp->durations[i] == t_star) {
+            alias_draw(&sp->tables[i], rng, out_speed, out_angle);
+            return;
         }
     }
-    //printf("Error: No state selected\n");
-    // Fallback to random state if no state is selected (should rarely happen)
-    return (int) curand_uniform(&local_state[0]) * N_STATES;;
+
+    // find bracketing t0, t1
+    int idx0 = 0;
+    while (idx0 < sp->n_durations - 1 && sp->durations[idx0 + 1] < t_star)
+        idx0++;
+    int idx1 = idx0 + 1;
+
+    // clamp to edges (extrapolation → nearest)
+    if (t_star < sp->durations[0]) {
+        alias_draw(&sp->tables[0], rng, out_speed, out_angle);
+        return;
+    }
+    if (t_star > sp->durations[sp->n_durations - 1]) {
+        alias_draw(&sp->tables[sp->n_durations - 1], rng, out_speed, out_angle);
+        return;
+    }
+
+    float t0 = sp->durations[idx0];
+    float t1 = sp->durations[idx1];
+    float lambda = (t_star - t0) / (t1 - t0);   // weight toward t1
+
+    // stochastic interpolation: draw from t0 or t1 with prob (1-l, l)
+    if (curand_uniform(rng) > lambda)
+        alias_draw(&sp->tables[idx0], rng, out_speed, out_angle);
+    else
+        alias_draw(&sp->tables[idx1], rng, out_speed, out_angle);
+}
+
+__device__ float sample_von_mises(curandState* rng, float kappa) {
+    // Best & Fisher (1979) algorithm
+    // Returns a sample in (-pi, pi) with concentration kappa around 0
+
+    float tau  = 1.0f + sqrtf(1.0f + 4.0f * kappa * kappa);
+    float rho  = (tau - sqrtf(2.0f * tau)) / (2.0f * kappa);
+    float r    = (1.0f + rho * rho) / (2.0f * rho);
+
+    float z, f, c, u1, u2, u3;
+    while (true) {
+        u1 = curand_uniform(rng);
+        u2 = curand_uniform(rng);
+        u3 = curand_uniform(rng);
+
+        z  = cosf(3.14159265f * u1);
+        f  = (1.0f + r * z) / (r + z);
+        c  = kappa * (r - f);
+
+        if (c * (2.0f - c) > u2) break;           // acceptance condition 1
+        if (logf(c / u2) + 1.0f - c >= 0.0f) break;  // acceptance condition 2
+    }
+
+    return (u3 > 0.5f ? 1.0f : -1.0f) * acosf(f);
 }
 
 
-
-__global__ void moveAgents(Agent* agents, curandState* local_state, State* states, int worm_count) {
-    int agent_id = threadIdx.x + blockIdx.x * blockDim.x;
+__global__ void moveAgentsCollective(Agent* agents, curandState* local_state, int worm_count, int timestep, StateParams* params){
+  int agent_id = threadIdx.x + blockIdx.x * blockDim.x;
     if (agent_id<worm_count) {
-        int agent_state = agents[agent_id].state;
+      int agent_state = agents[agent_id].state;
+
+        StateParams* sp = &params[agent_state];
+        float speed, angle_change;
         curandState local_rng = local_state[agent_id];
-        State state = states[agent_id * N_STATES + agent_state];
-        /*
-        //log x,y index before moving for count grid
-        int cur_x_index = static_cast<int>(agents[agent_id].x / DX);
-        int cur_y_index = static_cast<int>(agents[agent_id].y / DY);
+    	draw_speed_angle(sp, agents[agent_id].initial_state_duration, &local_rng, &speed, &angle_change);
+		float mu_score = 0.536f, std_score = 0.547f;
+        float mu_period = 2.363f, sigma_period = 0.581f;
+        if (agent_state == 2) {
+            // initialize once when entering run
+    		if (agents[agent_id].previous_state != 2 || timestep==0) {
+                  if(agents[agent_id].agent_id ==0){
+        				float zP = curand_normal(&local_rng);
+        				float sampled_period = roundf(expf(mu_period + sigma_period * zP));
+        				if (sampled_period < 4)  sampled_period = 4;
+        				if (sampled_period > 60) sampled_period = 60;
 
-        //printf("\tsampling angle...\n");
+        				agents[agent_id].run_omega = 2.0f * 3.14159265f / sampled_period; //
 
-        float sampled_angle= sample_from_von_mises(state.angle_mu, state.angle_kappa, &local_state[agent_id]);
-        if (repulsive_pheromone[cur_x_index*N+cur_y_index]>POTENTIAL_THRESHOLD) {
-            printf("current phero: %f, sampling\n", repulsive_pheromone[cur_x_index*N+cur_y_index]);
-            float min_repulsive_phero_direction = sampled_angle;
-            float min_repulsive_phero = repulsive_pheromone[cur_x_index*N+cur_y_index];
-            for (int i = 0; i < 32; ++i) {
-                float angle = curand_uniform(&local_state[agent_id]) * 2 * M_PI;
-                int sample_x = static_cast<int> (cur_x_index + DX * cosf(angle));
-                int sample_y = static_cast<int> (cur_y_index + DY * sinf(angle));
-                if (repulsive_pheromone[sample_x*N+sample_y]<=min_repulsive_phero) {
-                    min_repulsive_phero = repulsive_pheromone[sample_x*N+sample_y];
-                    min_repulsive_phero_direction = angle;
-                }
-            }
-            sampled_angle = 1e2f * min_repulsive_phero * min_repulsive_phero_direction + (1.0f - 1e2f * min_repulsive_phero) * min_repulsive_phero_direction;
-        }*/
+        				float zA = curand_normal(&local_rng);
+        				float a = mu_score + std_score * zA;//
+        				if (a < 0.213f) a = 0.213f;
+        				if (a > 0.850f) a = 0.850f;
+        				agents[agent_id].run_amp = a;
+					}
+        		agents[agent_id].phi = 0.0f;//sample_von_mises(&local_rng, 1.5f);// sample_von_mises(&local_rng, agents[agent_id].kappa);//2.0f * 3.14159265f * curand_uniform(&local_rng);
+    		}
 
-        //pick randomly between 0 and pi based on the angle_change_mix: 0 = 0, 1 = pi
+    // phase noise makes the oscillation less rigid
+    		float sigma_phi = 0.0f;//0.6934f;   // tune from data
+    		agents[agent_id].phi += agents[agent_id].run_omega + sigma_phi * curand_normal(&local_rng);
 
-        float random_uniform_sample = curand_uniform(&local_state[agent_id]), sampled_angle;
-        float target_kappa = state.angle_kappa;
-        if (abs(state.angle_change_mix - 0.5f)<0.2f) { //in almost equal proportions, the fitting will have a very wide kappa
-            target_kappa = 10.0f;
-        }
-        if (random_uniform_sample>state.angle_change_mix) {
-            float target_angle = M_PI;
-            /*if (state.angle_mu > 1.0f) {
-                target_angle = state.angle_mu;
-            }*/
-            //printf("random sample %f > angle change mix %f\n", random_uniform_sample, state.angle_change_mix);
-            sampled_angle = state.angle_mu_sign *  sample_from_von_mises(target_angle, target_kappa, &local_state[agent_id]);
+    // mean-zero angle noise widens the distribution around 0
+    		float sigma_theta = sample_von_mises(&local_rng, agents[agent_id].kappa); // tune from residuals of real data
+    		angle_change = agents[agent_id].run_amp * sinf(agents[agent_id].phi)
+                  + sigma_theta;
+		}
 
-            while (std::abs(sampled_angle)<1.0f) {
-                printf("Resampling angle change %f\n", sampled_angle);
-                sampled_angle = state.angle_mu_sign *  sample_from_von_mises(target_angle, target_kappa, &local_state[agent_id]);
-                printf("New angle change: %f\n", sampled_angle);
-            }
+        float new_angle =agents[agent_id].angle+angle_change;
 
-            if (agent_state == 1) {
-                if (std::abs(sampled_angle)<1.0f) {
-                    printf("sampled a suspicious angle %f\n", sampled_angle);
-                    printf("agent %d in state %d\n", agent_id, agent_state);
-                    printf("state %d has angle_mu = %f, angle_kappa = %f, angle_change_mix = %f\n", agent_state, state.angle_mu, state.angle_kappa, state.angle_change_mix);
-                }
-            }
-
-        }
-        else {
-            float target_angle = 0.0f;
-
-            //printf("random sample %f < angle change mix %f\n", random_uniform_sample, state.angle_change_mix);
-            sampled_angle =state.angle_mu_sign *  sample_from_von_mises(target_angle,target_kappa, &local_state[agent_id]);
+        new_angle = fmodf(new_angle + M_PI, 2 * M_PI);
+		if (new_angle < 0) new_angle += 2 * M_PI;
+		new_angle -= M_PI;
+		//clip speed to 0-MAXIMUM_ALLOWED_SPEED
+        if(speed<0.0f) speed=0.0f;
+        if(speed>MAX_ALLOWED_SPEED) speed=MAX_ALLOWED_SPEED;
 
 
-        }
-        //float sampled_angle= sample_from_von_mises(state.angle_mu_sign * state.angle_mu, state.angle_kappa, &local_state[agent_id]);
+        //find dx and dy
+        float dx = speed * cosf(new_angle) * DT;
+        float dy = speed * sinf(new_angle) * DT;
 
-        //printf("sampled angle = %f\n", sampled_angle);
-        agents[agent_id].angle+=sampled_angle;
-        if(agents[agent_id].angle>2 * M_PI || agents[agent_id].angle<-2 * M_PI){
-            agents[agent_id].angle = fmodf(agents[agent_id].angle, 2*M_PI);
-        }
-        //printf("\tsampling speed...\n");
-
-        float sampled_speed =( sample_beta_device(&local_state[agent_id], state.speed_alpha, state.speed_beta))* (state.max_speed - state.min_speed) + fmaxf(0.0f, state.min_speed);
-
-        //float sampled_speed =( sample_beta_device(&local_state[agent_id], state.speed_alpha, state.speed_beta) + fmaxf(state.min_speed, state.speed_loc))* state.speed_scale;
-        while (sampled_speed>state.max_speed || sampled_speed<state.min_speed) {
-            sampled_speed = (sample_beta_device(&local_state[agent_id], state.speed_alpha, state.speed_beta) ) * (state.max_speed - state.min_speed)+ fmaxf(0.0f, state.min_speed);
-            //printf("with state %d resampled speed : %f\n", agent_state, sampled_speed);
-        }
-
-        //apply DT for speed
-        sampled_speed *= DT;
-
-        float fx = cosf(agents[agent_id].angle);
-        float fy = sinf(agents[agent_id].angle);
-
-        float dx = fx * sampled_speed;
-        float dy = fy * sampled_speed;
-
-
-        //float prev_x = agents[agent_id].x , prev_y = agents[agent_id].y;
-
-        //move
         agents[agent_id].x += dx;
         agents[agent_id].y += dy;
 
@@ -183,288 +185,591 @@ __global__ void moveAgents(Agent* agents, curandState* local_state, State* state
         if (agents[agent_id].y < 0) agents[agent_id].y += HEIGHT;
         if (agents[agent_id].y >= HEIGHT) agents[agent_id].y -= HEIGHT;
 
-        //check if the new x or y indices are different, if so, -1 to the previous grid point, +1 to the new one
-        /*int next_x_index = static_cast<int>(agents[agent_id].x / DX);
-        int next_y_index = static_cast<int>(agents[agent_id].y / DY);
-        if (next_x_index!=cur_x_index || next_y_index!=cur_y_index) {
-            //printf("agent changed cell: from (%f,%f) in (%d,%d) to (%f, %f) in (%d, %d) with DX=DY=%f\n", prev_x, prev_y, cur_x_index, cur_y_index, agents[agent_id].x, agents[agent_id].y, next_x_index, next_y_index, DX);
-            atomicAdd(&agent_count_grid[cur_x_index*N+cur_y_index], -1);
-            atomicAdd(&agent_count_grid[next_x_index*N+next_y_index], 1);
-        }*/
+        agents[agent_id].previous_speed = agents[agent_id].speed;
+        agents[agent_id].previous_angle = agents[agent_id].angle_change;
+        agents[agent_id].previous_mag_angle_change = fabsf(agents[agent_id].angle_change);
 
-        agents[agent_id].speed = sampled_speed;
-        //printf("speed : %f\n", sampled_speed);
+        agents[agent_id].speed = speed;
+        agents[agent_id].angle = new_angle;
+        agents[agent_id].angle_change = angle_change;
 
+        int neighbor_count = 0;
+        for (int j = 0; j < WORM_COUNT; j++) {
+            if (agent_id == j) continue;
+            float a_dx = agents[agent_id].x - agents[j].x;
+            float a_dy = agents[agent_id].y - agents[j].y;
+            float dist = sqrtf(a_dx*a_dx + a_dy*a_dy);
+            if (dist < 0.5f) neighbor_count++;
+        }
 
+        // you're already computing this — just store it
+        agents[agent_id].neighbor_count = neighbor_count;
 
+		local_state[agent_id] = local_rng;
 
     }
 }
 
-__global__ void updateAgentState(Agent* agents, curandState* local_state, State* states, int timestep, int worm_count) {
+__global__ void updateAgentStateCollective(
+    Agent* agents,
+    curandState* rng_states,
+    int timestep,
+    int worm_count, StateParams* params)
+{
+    int agent_id = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (agent_id >= worm_count)
+        return;
+
+    if(agents[agent_id].state_duration>1){
+      TransitionModel exit_model = d_exit_models[agents[agent_id].state];
+      //use exit model to determine if the agent should exit the state early -- it's a logistic function on the number of neighbors
+        float p_exit = 1.0f / (1.0f + expf(-exit_model.coeff * (float)agents[agent_id].neighbor_count + exit_model.intercept));
+        float u = curand_uniform(&rng_states[agent_id]);
+        if (u < p_exit) {
+          //set duration to 0
+            agents[agent_id].state_duration = 0;
+        }
+    }
+
+    if(agents[agent_id].state_duration > 1){
+
+      agents[agent_id].previous_state = agents[agent_id].state;
+      agents[agent_id].state = agents[agent_id].state; //keep the same state
+      agents[agent_id].state_duration -= 1;
+        return; //don't update state if duration not over
+    }
+
+    curandState local_rng = rng_states[agent_id];
+
+    int agent_state = agents[agent_id].state;
+
+    float p[N_STATES];
+
+	float p_irr = 0.0f;
+	float p_r_raw[N_STATES];
+	float sum_r = 0.0f;
+
+	// PASS 1: compute raw values
+	for (int i = 0; i < N_STATES; i++)
+	{
+    	const TransitionModel& model =
+        	d_transition_models[agent_state * N_STATES + i];
+
+    	if (model.coeff==-1 && model.intercept==-1 )
+    	{
+        	p[i] = model.p_off_food;
+        	p_irr += p[i];
+        	p_r_raw[i] = 0.0f; // important
+    	}
+    	else
+    	{
+
+        	float z = model.coeff *  (float) agents[agent_id].neighbor_count + model.intercept;
+        	float val = 1.0f / (1.0f + expf(-z));
+        	p_r_raw[i] = val;
+        	sum_r += val;
+    	}
+	}
+
+	// PASS 2: normalize ONLY relevant transitions
+	float remaining_mass = 1.0f - p_irr;
+
+	if (sum_r > 0.0f && remaining_mass > 0.0f)
+	{
+    	for (int i = 0; i < N_STATES; i++)
+    	{
+        	const TransitionModel& model =
+            	d_transition_models[agent_state * N_STATES + i];
+
+        	if (!(model.coeff==-1 && model.intercept==-1 ))//|| fabsf(agents[agent_id].accumulated_dc_tot) < ODOR_THRESHOLD))
+        	{
+            	p[i] = (p_r_raw[i] / sum_r) * remaining_mass;
+        	}
+    	}
+	}
+
+
+    int next_state = select_next_state(p, &local_rng, N_STATES);
+    if (next_state < 0 || next_state >= N_STATES) {
+    	printf("ERROR next_state=%d (agent %d)\n", next_state, agent_id);
+    	return;
+	}
+
+	agents[agent_id].previous_state = agents[agent_id].state;
+    agents[agent_id].state = next_state;
+    //sample duration for the new state
+    const BehaviorDistribution& new_state_dist = d_behavior_distributions[next_state];
+    float u = curand_uniform(&local_rng);
+	int idx = 0;
+	for (int j = 0; j < new_state_dist.n_duration_bins - 1; j++) {
+    	if (u <= new_state_dist.duration_prob[j]) {
+        	idx = j;
+        	break;
+    	}
+    	idx = j + 1;  // fallback to last bin if u > all but last cumprob
+	}
+	int new_duration = new_state_dist.duration_bins[idx];
+	agents[agent_id].state_duration = max(new_duration, 1); //at least 1 timestep in the new state
+
+      BehaviorDistribution state = d_behavior_distributions[next_state];
+      agents[agent_id].p_same_sign = state.p_same_sign;
+
+
+	agents[agent_id].initial_state_duration = agents[agent_id].state_duration;
+
+    rng_states[agent_id] = local_rng;
+}
+
+
+__global__ void moveAgents(Agent* agents, curandState* local_state, int worm_count, int timestep, StateParams* params) {
     int agent_id = threadIdx.x + blockIdx.x * blockDim.x;
     if (agent_id<worm_count) {
-        curandState local_rng = local_state[agent_id];
-        int agent_state = agents[agent_id].state;
-        //printf("agent state %d\n", agent_state);
+        /*
 
-        State state = states[agent_id * N_STATES + agent_state];
-
-        int x_index =static_cast<int>(agents[agent_id].x/DX), y_index = static_cast<int>(agents[agent_id].y/DY);
-
-        //float potential_bacteria = bacterial_lawn[x_index*N+y_index];
-//BACTERIAL_ATTRACTION_STRENGTH * log(bacterial_lawn[x_index*N+y_index]+BACTERIAL_ATTRACTION_SCALE);
-        //float repulsive_potential = - repulsive_pheromone[x_index*N+y_index];
-//REPULSIVE_PHEROMONE_STRENGTH * log(repulsive_pheromone[x_index*N+y_index]+REPULSIVE_PHEROMONE_SCALE);
-        //float cur_potential = potential_bacteria + repulsive_potential;
-        //float delta_potential = cur_potential - agents[agent_id].previous_potential;
-
-        //agents[agent_id].cumulative_potential += cur_potential;
-        //printf("bacterial density=%f (p=%f) repulsive phero=%f (p=%f) cum = %f\n", bacterial_lawn[x_index*N+y_index], potential_bacteria, repulsive_pheromone[x_index*N+y_index], repulsive_potential, agents[agent_id].cumulative_potential);
-        if (agents[agent_id].state_duration>0){// && abs(delta_potential)<=POTENTIAL_THRESHOLD) {
-            agents[agent_id].state_duration--;
-            //printf("diminishing duration\n");
-        }
+        BehaviorDistribution state = d_behavior_distributions[agent_state];
+		int n_speed_bins;
+         float *speed_bins, *speed_prob;
+         int *speed_alias;
+        if(agents[agent_id].is_persistent && STATE_MAX_DURATIONS[agents[agent_id].state]>d_proam.thresh){
+          		n_speed_bins=state.n_roaming_speed_bins;
+                speed_bins = state.roaming_speed_bins;
+                speed_prob = state.roaming_speed_prob;
+                speed_alias = state.roaming_speed_alias;
+          }
         else{
-            if (agents[agent_id].state_duration!=-1) { //not the initialisation value, need to transition
-                float probabilities[N_STATES];
-                float sum_of_probabilities=0.0f;
-                for (int i = 0; i < N_STATES; i++) {
-                    if (i==agent_state)
-                        probabilities[i] = 0.0f;
-                    else {
-                        //probabilities[i] = fmaxf((states[agent_id * N_STATES + i].probability_m * static_cast<float>(timestep ) / (120.0f/ DT) + states[agent_id * N_STATES + i].probability_q), 0.0f);// / (120.0f / DT), 0.0f);
-                        probabilities[i] =  fmaxf(states[agent_id * N_STATES + agent_state].transition_likelihood[i], 0.0f);
+           n_speed_bins=state.n_speed_bins;
+                speed_bins = state.speed_bins;
+                speed_prob = state.speed_prob;
+                speed_alias = state.speed_alias;
+        }
+        //sample speed
+        int k = (int)(curand_uniform(&local_rng) * n_speed_bins);
 
-                    }
-                    sum_of_probabilities+=probabilities[i];
-                }
-                if (sum_of_probabilities>0.0f) {
-                    for (int i = 0; i < N_STATES; i++) {
-                        probabilities[i]/=sum_of_probabilities;
-                    }
+        if (k >= n_speed_bins)
+            k = n_speed_bins - 1;
+        float r = curand_uniform(&local_rng);
+
+        int idx = (r < speed_prob[k]) ? k : speed_alias[k];
+        float speed_raw = speed_bins[idx];
+
+        //float speed = state.speed_alpha * agents[agent_id].previous_speed + (1.0f-fabsf(state.speed_alpha)) * speed_raw;
+		float speed = speed_raw;
+        //ar(1)
+        //float speed = state.speed_alpha * (agents[agent_id].previous_speed - state.speed_mean) + speed_raw + state.speed_mean;
+        //in case a transition occurred, use only sampled speed
+
+
+        //float speed = speed_raw;
+         //sample angle change
+
+         float lambda;
+         int n_angle_bins;
+         float *angle_bins, *angle_prob;
+         int *angle_alias;
+            if(agents[agent_id].is_persistent && STATE_MAX_DURATIONS[agents[agent_id].state]>d_proam.thresh){
+                lambda = state.angle_alpha;
+                n_angle_bins = state.roaming_n_angle_bins;
+                angle_bins = state.roaming_angle_bins;
+                angle_prob = state.roaming_angle_prob;
+                angle_alias = state.roaming_angle_alias;
+            }
+            else {
+                lambda = 0.0f;
+                n_angle_bins = state.n_angle_bins;
+                angle_bins = state.angle_bins;
+                angle_prob = state.angle_prob;
+                angle_alias = state.angle_alias;
+            }
+
+
+        k = curand_uniform(&local_rng) * n_angle_bins;
+        if (k >= n_angle_bins)
+            k = n_angle_bins - 1;
+        r = curand_uniform(&local_rng);
+        idx = (r < angle_prob[k]) ? k : angle_alias[k];
+        float angle_change_raw = angle_bins[idx];
+
+
+        mag *= ac_factor;
+
+        //angle_change_raw *= ac_factor;
+
+
+        float angle_change;// =lambda * agents[agent_id].previous_angle + (1.0f-lambda) * angle_change_raw;
+		//ar(1)
+        //angle_change = state.angle_alpha * (agents[agent_id].previous_angle - state.angle_mean) + angle_change + state.angle_mean;
+		if(agents[agent_id].previous_state != agent_state) {
+            angle_change = angle_change_raw;
+            //printf("Agent %d: state transition from %d to %d,  angle change raw %f, angle change %f\n", agent_id, agents[agent_id].previous_state, agent_state, angle_change_raw, angle_change);
+        }
+        else {
+			lambda = curand_normal(&local_rng) * state.std_angular_difference + state.mean_angular_difference;
+            mag = lambda + agents[agent_id].previous_angle;
+            //pick sign based on state.p_same_sign
+            float sign=1.0f;
+            if(curand_uniform(&local_rng) < state.p_same_sign){
+                sign = copysignf(1.0f, agents[agent_id].previous_angle);
+            }
+            else {
+                sign = copysignf(1.0f, -agents[agent_id].previous_angle);
+            }
+            angle_change = mag;
+            //printf("Agent %d: no state transition, angle change raw %f, angle change %f, lambda %f, previous mag angle change %f\n", agent_id, angle_change_raw, angle_change, lambda, agents[agent_id].previous_mag_angle_change);
+        }
+		angle_change =  angle_change_raw;// * (- 2.0f/(3.0f *(float)STATE_MAX_DURATIONS[agent_state]) * (float)(agents[agent_id].initial_state_duration-1) + 1.0f);
+		if(agents[agent_id].state==1 && agents[agent_id].is_persistent && agent_state==agents[agent_id].previous_state) angle_change = copysignf(angle_change, -agents[agent_id].previous_angle);
+        ;// lambda*agents[agent_id].angle+(1-lambda)*angle_change;
+
+        */
+        //if dc_int is > 0: limit the angle change, by scaling it
+        //for now, compute dc_int simply as the instantaneous dc = c[0] - c[1]
+                //find tau for prev state -> current state transition
+                int agent_state = agents[agent_id].state;
+
+        const TransitionModel& model = d_transition_models[agents[agent_id].previous_state * N_STATES + agent_state];
+        float dc;
+        if(model.intercept != -1 && model.coeff != -1){
+            dc = agents[agent_id].c[0] - agents[agent_id].c[model.tau];
+        }
+        else {
+            dc = agents[agent_id].c[0] - agents[agent_id].c[1];
+        }
+
+        const TransitionBias& bias = d_transition_biases[agents[agent_id].previous_state * N_STATES + agent_state];
+        const TransitionFactor& factor = d_transition_factors[agents[agent_id].previous_state * N_STATES + agent_state];
+        float ac_factor = 1.0f, sp_factor = 1.0f;
+        float mag = 1.0f;//fabsf(angle_change_raw);
+        if(dc>0.0f){
+            ac_factor = factor.angle_plus;
+            sp_factor = factor.speed_plus;
+
+            //angle_change += ac_factor;
+        } else if (dc<0.0f){
+            ac_factor = factor.angle_minus;
+            sp_factor = factor.speed_minus;
+            //angle_change += ac_factor;
+        }
+        StateParams* sp = &params[agent_state];
+        float speed, angle_change;
+        curandState local_rng = local_state[agent_id];
+    	draw_speed_angle(sp, agents[agent_id].initial_state_duration, &local_rng, &speed, &angle_change);
+		float mu_score = 0.536f, std_score = 0.547f;
+        float mu_period = 2.363f, sigma_period = 0.581f;
+        if (agent_state == 2) {
+    // initialize once when entering run
+    		if (agents[agent_id].previous_state != 2 || timestep==0) {
+                  if(agents[agent_id].agent_id ==0){
+        				float zP = curand_normal(&local_rng);
+        				float sampled_period = roundf(expf(mu_period + sigma_period * zP));
+        				if (sampled_period < 4)  sampled_period = 4;
+        				if (sampled_period > 60) sampled_period = 60;
+
+        				agents[agent_id].run_omega = 2.0f * 3.14159265f / sampled_period; //
+
+        				float zA = curand_normal(&local_rng);
+        				float a = mu_score + std_score * zA;//
+        				if (a < 0.213f) a = 0.213f;
+        				if (a > 0.850f) a = 0.850f;
+        				agents[agent_id].run_amp = a;
+					}
+        		agents[agent_id].phi = 0.0f;//sample_von_mises(&local_rng, 1.5f);// sample_von_mises(&local_rng, agents[agent_id].kappa);//2.0f * 3.14159265f * curand_uniform(&local_rng);
+    		}
+
+    // phase noise makes the oscillation less rigid
+    		float sigma_phi = 0.0f;//0.6934f;   // tune from data
+    		agents[agent_id].phi += agents[agent_id].run_omega + sigma_phi * curand_normal(&local_rng);
+
+    // mean-zero angle noise widens the distribution around 0
+    		float sigma_theta = sample_von_mises(&local_rng, agents[agent_id].kappa); // tune from residuals of real data
+    		angle_change = agents[agent_id].run_amp * sinf(agents[agent_id].phi)
+                  + sigma_theta;
+		}
+
+        //apply sign-based dc factor
+        angle_change *= ac_factor;
+        speed *= sp_factor;
+
+        float new_angle =agents[agent_id].angle+angle_change;
+        //if (agent_state == 0) //reversal state 0
+    	//new_angle += M_PI;
+        //keep between -pi and pi
+        new_angle = fmodf(new_angle + M_PI, 2 * M_PI);
+		if (new_angle < 0) new_angle += 2 * M_PI;
+		new_angle -= M_PI;
+		//clip speed to 0-MAXIMUM_ALLOWED_SPEED
+        if(speed<0.0f) speed=0.0f;
+        if(speed>MAX_ALLOWED_SPEED) speed=MAX_ALLOWED_SPEED;
+
+
+        //find dx and dy
+        float dx = speed * cosf(new_angle) * DT;
+        float dy = speed * sinf(new_angle) * DT;
+
+        //move -- only if the agent is NOT within a 1mm radius of the odor source, as if it was glued
+        float odor_dist = sqrtf((agents[agent_id].x - odor_x0) * (agents[agent_id].x - odor_x0) + (agents[agent_id].y - odor_y0) * (agents[agent_id].y - odor_y0));
+        if(odor_dist > 1.0f){
+        agents[agent_id].x += dx;
+        agents[agent_id].y += dy;
+        //printf("Agent %d is NOT within 1mm of the odor source, moving. distance = %f, dx=%f, dy=%f, speed=%f\n", agent_id, odor_dist, dx, dy, speed);
+        }
+        //else{
+          //printf("Agent %d is within 1mm of the odor source, not moving. distance = %f\n", agent_id, odor_dist);
+          //}
+
+        //apply periodic boundary conditions
+        /*if (agents[agent_id].x < 0) agents[agent_id].x += WIDTH;
+        if (agents[agent_id].x >= WIDTH) agents[agent_id].x -= WIDTH;
+        if (agents[agent_id].y < 0) agents[agent_id].y += HEIGHT;
+        if (agents[agent_id].y >= HEIGHT) agents[agent_id].y -= HEIGHT;*/
+        //just keep them within the boundaries for now
+        if (agents[agent_id].x < 0) agents[agent_id].x = 0;
+        if (agents[agent_id].x >= WIDTH) agents[agent_id].x = WIDTH - 0.001f;
+        if (agents[agent_id].y < 0) agents[agent_id].y = 0;
+        if (agents[agent_id].y >= HEIGHT) agents[agent_id].y = HEIGHT - 0.001f;
+
+        agents[agent_id].previous_speed = agents[agent_id].speed;
+        agents[agent_id].previous_angle = agents[agent_id].angle_change;
+        agents[agent_id].previous_mag_angle_change = fabsf(agents[agent_id].angle_change);
+
+        agents[agent_id].speed = speed;
+        agents[agent_id].angle = new_angle;
+        agents[agent_id].angle_change = angle_change;
+
+        //update sensing history: first, compute the sensed dC value at the current position
+        //then, shift the history and add the new value at the end
+        float sensed_concentration = diffusionProfile(agents[agent_id].x, agents[agent_id].y, timestep * DT);
+        //first value is the most recent, last value is the oldest
+        for (int i = 99; i > 0; i--) {
+            agents[agent_id].c[i] = agents[agent_id].c[i-1];
+        }
+        agents[agent_id].c[0] = sensed_concentration;
+
+        if (sensed_concentration != 0.0f) {
+            printf("Agent %d sensed concentration %f at position (%f, %f) at time %f, dc %f\n", agent_id, sensed_concentration, agents[agent_id].x, agents[agent_id].y, timestep * DT, dc);
+        }
+        //update accumulated dc total
+        //compute dcs for each lag
+        float accumulated_dc_tot = 0.0f;
+        for (int tau1=0; tau1<N_STATES; tau1++){
+            for (int tau2=0; tau2<N_STATES; tau2++){
+                int idx = tau1 * N_STATES + tau2;
+                const TransitionModel& model = d_transition_models[idx];
+                if(model.tau != -1){
+                    agents[agent_id].dc_int[idx] = agents[agent_id].c[model.tau] - agents[agent_id].c[0];
+                    accumulated_dc_tot += agents[agent_id].dc_int[idx];
                 }
                 else {
-                    printf("Error in probability computation! Good luck.\n");
-                    printf("\tSome debug info:\n");
-                    printf("\tagent state: %d\n", agent_state);
-                    printf("\ttimestep: %d", timestep);
-                    printf("\tprobabilities: ");
-                    for (int i = 0; i < N_STATES; i++) {
-                        printf("\t state probabilities[%d]=%f\n", i, probabilities[i]);
-                    }
-                    printf("\t m=%f q=%f\n", state.probability_m, state.probability_q);
-                    //since the probabilities are all 0, just set them to uniform, except the current probb
-                    //printf("not in the good case, but should be fine?\n");
-                    for (int i = 0; i < N_STATES; i++) {
-                        if (i!=agent_state) {
-                            probabilities[i] = 1.0f/(N_STATES-1.0f);
-                        }
-                        //printf("constant probability to state %d is %f\n", i, probabilities[i]);
-
-                    }
+                    agents[agent_id].dc_int[idx] = 0.0f;
                 }
-                int next_state = select_next_state(probabilities, &local_state[agent_id], N_STATES);
-                    //printf("new state selected %d\n", next_state);
-                agents[agent_id].state = next_state;
-                state = states[agent_id * N_STATES + next_state];
             }
-            int duration;
-            if (state.duration_alpha==-1.0f and state.duration_beta==-1.0f) {
-                duration = 0;
-            }
-            else {
-                float scale = state.duration_scale;
-
-                /*if (state.breaking_point>0 && timestep % state.breaking_point==0) {
-                    if ( (timestep / state.breaking_point) % 2 ==1){
-                        scale = state.duration_scale1;}
-                    else{
-                        scale = state.duration_scale2;}
-                }*/
-                float s = sample_beta_device(&local_state[agent_id], state.duration_alpha, state.duration_beta);
-                //duration = static_cast<int>(round((s + fmaxf(0.0f, state.duration_loc - 1)) * scale));
-                duration = static_cast<int>(round(s * scale + state.duration_loc));
-
-                //printf("sampled new duration (float) %f + loc %f * scale %f = %d\n", s, state.duration_loc, scale, duration);
-
-                while (duration<0 || duration>=N_STEPS) {
-                    float nvidia_beta_sample = sample_beta_device(&local_state[agent_id], state.duration_alpha, state.duration_beta);
-                    duration =  static_cast<int>(round((nvidia_beta_sample  + fmaxf(0.0f, state.duration_loc))* scale));
-                    //printf("sampled new duration (float) %f + loc %f * scale %f = %d\n", nvidia_beta_sample, state.duration_loc, scale, duration);
-
-                }
-
-            }
-            agents[agent_id].state_duration=duration;
-
-            if(curand_uniform(&local_state[agent_id])>0.5){
-                state.angle_mu_sign = -1;
-            }else {
-                state.angle_mu_sign = 1;
-            }
-            //printf("new sign: %d\n", state.angle_mu_sign);
-
-
         }
-        //printf("agent state: %d with duration: %d\n", agents[agent_id].state, agents[agent_id].state_duration);
-        //agents[agent_id].previous_potential = cur_potential;
+
+        agents[agent_id].accumulated_dc_tot = accumulated_dc_tot;
+
+        int neighbor_count = 0;
+        for (int j = 0; j < WORM_COUNT; j++) {
+            if (agent_id == j) continue;
+            float a_dx = agents[agent_id].x - agents[j].x;
+            float a_dy = agents[agent_id].y - agents[j].y;
+            float dist = sqrtf(a_dx*a_dx + a_dy*a_dy);
+            if (dist < 1.0f) neighbor_count++;  // 1mm radius
+        }
+
+        // you're already computing this — just store it
+        agents[agent_id].neighbor_count = neighbor_count;
+
+		local_state[agent_id] = local_rng;
+
+    }
+}
+
+__global__ void accumulate_neighbors(Agent* agents, int n_agents,
+                                     int* neighbor_sum, int* timestep_count) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n_agents) return;
+
+    atomicAdd(&neighbor_sum[i], agents[i].neighbor_count);
+
+    // only one thread increments the timestep counter
+    if (i == 0) atomicAdd(timestep_count, 1);
+}
+
+__global__ void updateAgentState(
+    Agent* agents,
+    curandState* rng_states,
+    int timestep,
+    int worm_count, StateParams* params)
+{
+    int agent_id = threadIdx.x + blockIdx.x * blockDim.x;
+
+    if (agent_id >= worm_count)
+        return;
+
+    //printf("test\n");
+    //printf("state duration %d\n", agents[agent_id].state_duration);
+    if(agents[agent_id].state_duration > 1){
+      agents[agent_id].previous_state = agents[agent_id].state;
+      agents[agent_id].state = agents[agent_id].state; //keep the same state
+      agents[agent_id].state_duration -= 1;
+        return; //don't update state if duration not over
+    }
+
+    curandState local_rng = rng_states[agent_id];
+
+    int agent_state = agents[agent_id].state;
+
+    float p[N_STATES];
+
+	float p_irr = 0.0f;
+	float p_r_raw[N_STATES];
+	float sum_r = 0.0f;
+
+	// PASS 1: compute raw values
+	for (int i = 0; i < N_STATES; i++)
+	{
+    	const TransitionModel& model =
+        	d_transition_models[agent_state * N_STATES + i];
+
+        	/*if (model.tau < 0 || model.tau >= 1000) {
+    			printf("ERROR tau=%d invalid\n", model.tau);
+    			return;
+			}*/
+
+    	if ((model.coeff==-1 && model.intercept==-1 )|| fabsf(agents[agent_id].accumulated_dc_tot) < ODOR_THRESHOLD || model.tau==-1)
+    	{
+        	p[i] = model.p_off_food;
+        	p_irr += p[i];
+        	p_r_raw[i] = 0.0f; // important
+    	}
+    	else
+    	{
+        	float dc_int_value = agents[agent_id].c[0] - agents[agent_id].c[model.tau];
+			dc_int_value = (dc_int_value - model.mean) / model.std; //z-score normalization
+        	float z = model.sign * (model.coeff * dc_int_value + model.intercept); //add a bit of gain
+        	//float val = 1.0f / (1.0f + expf(-z));
+			float val = expf(z);
+        	p_r_raw[i] = val;
+        	sum_r += val;
+    	}
+	}
+
+	// PASS 2: normalize ONLY relevant transitions
+	float remaining_mass = 1.0f - p_irr;
+
+	if (sum_r > 0.0f && remaining_mass > 0.0f)
+	{
+    	for (int i = 0; i < N_STATES; i++)
+    	{
+        	const TransitionModel& model =
+            	d_transition_models[agent_state * N_STATES + i];
+
+        	if (!(model.coeff==-1 && model.intercept==-1 ))//|| fabsf(agents[agent_id].accumulated_dc_tot) < ODOR_THRESHOLD))
+        	{
+            	p[i] = (p_r_raw[i] / sum_r) * remaining_mass;
+        	}
+    	}
+	}
+
+
+    int next_state = select_next_state(p, &local_rng, N_STATES);
+    if (next_state < 0 || next_state >= N_STATES) {
+    	printf("ERROR next_state=%d (agent %d)\n", next_state, agent_id);
+    	return;
+	}
+
+	if (STATE_MAX_DURATIONS[next_state] <= 0) {
+    	printf("ERROR invalid max duration for state %d\n", next_state);
+    	return;
+	}
+
+	agents[agent_id].previous_state = agents[agent_id].state;
+    agents[agent_id].state = next_state;
+    //sample duration for the new state
+    const BehaviorDistribution& new_state_dist = d_behavior_distributions[next_state];
+    float u = curand_uniform(&local_rng);
+	int idx = 0;
+	for (int j = 0; j < new_state_dist.n_duration_bins - 1; j++) {
+    	if (u <= new_state_dist.duration_prob[j]) {
+        	idx = j;
+        	break;
+    	}
+    	idx = j + 1;  // fallback to last bin if u > all but last cumprob
+	}
+	int new_duration = new_state_dist.duration_bins[idx];
+	/*DurationLognormal duration_params = d_duration_lognormals[next_state];
+    float mu = duration_params.mu, sigma = duration_params.sigma;
+    int loc=0;
+    agents[agent_id].is_persistent = false;
+    if(duration_params.sigma == -1.0f && duration_params.mu == -1.0f){
+        new_duration = 1; //if no duration data, just stay 1 timestep in the new state
+    }else{
+      if(STATE_MAX_DURATIONS[next_state] > d_proam.thresh){
+          //have to flip a coin
+          float u = curand_uniform(&local_rng);
+          if (u<d_proam.p_roam){
+            //sample from the roam distribution
+            agents[agent_id].is_persistent = true;
+            mu = d_roaming_lognormal.mu;
+            sigma = d_roaming_lognormal.sigma;
+            loc = d_proam.thresh;
+            }
+        }
+
+    do {
+    new_duration =(int) roundf( + expf(mu + sigma * curand_normal(&local_rng)));
+	} while (new_duration > STATE_MAX_DURATIONS[next_state] - 1);
+
+	StateParams* sp = &params[next_state];
+       do{
+    new_duration = (int)roundf(sample_betaprime(sp->bp_alpha, sp->bp_beta, sp->bp_scale, &local_rng));
+    } while (new_duration > STATE_MAX_DURATIONS[next_state]-1);
+	*/
+	agents[agent_id].state_duration = max(new_duration, 1); //at least 1 timestep in the new state
+
+      BehaviorDistribution state = d_behavior_distributions[next_state];
+      agents[agent_id].p_same_sign = state.p_same_sign;
+
+
+	agents[agent_id].initial_state_duration = agents[agent_id].state_duration;
+
+    rng_states[agent_id] = local_rng;
+}
+
+
+__global__ void updateAgentStateDeterministic(
+        Agent* agents,
+        const int* __restrict__ d_labels,
+        int   n_labels,
+        int   t)
+{
+    int id = blockIdx.x * blockDim.x + threadIdx.x;
+    if (id >= WORM_COUNT) return;
+
+    // clamp t so we freeze at the last label if the simulation runs longer
+    int t_cur  = min(t,     n_labels - 1);
+    int t_prev = max(0, t - 1);
+
+    int current_state  = d_labels[t_cur];
+    int previous_state = d_labels[t_prev];
+
+    agents[id].previous_state = agents[id].state;
+    agents[id].state          = current_state;
+
+    if (previous_state != current_state) {
+        // ── state just changed: count the run length ahead ────────────────
+        int run_length = 0;
+        for (int tau = t_cur; tau < n_labels; tau++) {
+            if (d_labels[tau] == current_state) run_length++;
+            else                                break;
+        }
+        agents[id].initial_state_duration = run_length;
+        agents[id].state_duration         = run_length;
+    } else {
+        // ── continuing in same state ──────────────────────────────────────
+        agents[id].state_duration -= 1;
     }
 }
 
 
-
-
-// CUDA kernel to update the position of each agent
-__global__ void moveAgents2(Agent* agents, curandState* states, ExplorationState * d_explorationStates,  /*float* potential, int* agent_count_grid,*/ int worm_count, int timestep, float sigma) {
-    int id = threadIdx.x + blockIdx.x * blockDim.x;
-    if (id < worm_count) {
-
-        float max_concentration_x = 0.0f;
-        float max_concentration_y = 0.0f;
-        float sensed_potential = computeDensityAtPoint(agents[id].x, agents[id].y, timestep);//potential[agent_x * N + agent_y];
-        sensed_potential = ATTRACTION_STRENGTH * logf(sensed_potential + ATTRACTION_SCALE);
-        //add a small perceptual noise to the potential
-        if(sigma!=0.0f){
-            float perceptual_noise = curand_normal(&states[id]) * sigma;
-            if(perceptual_noise>sigma) perceptual_noise = sigma;
-            if(perceptual_noise<-sigma) perceptual_noise = (-sigma);
-            sensed_potential += perceptual_noise;
-        }
-
-        float max_concentration = sensed_potential;
-        //printf("Sensed potential: %f\n", sensed_potential);
-        for (int i = 0; i < 32; ++i) {
-            float angle = curand_uniform(&states[id]) * 2 * M_PI;
-            float sample_x = agents[id].x + SENSING_RADIUS * cosf(angle);
-            float sample_y = agents[id].y + SENSING_RADIUS * sinf(angle);
-            float concentration = computeDensityAtPoint(sample_x, sample_y, timestep);
-            // Add perceptual noise if sigma is not zero
-            if (sigma != 0.0f) {
-                concentration += curand_normal(&states[id]) * sigma;
-            }
-            concentration = ATTRACTION_STRENGTH * logf(concentration + ATTRACTION_SCALE);
-
-            if (concentration > max_concentration) {
-                max_concentration = concentration;
-                max_concentration_x = cosf(angle);
-                max_concentration_y = sinf(angle);
-            }
-        }
-
-        float auto_transition_probability = curand_uniform(&states[id]);
-        if (agents[id].cumulative_potential > PIROUETTE_TO_RUN_THRESHOLD || auto_transition_probability>=AUTO_TRANSITION_PROBABILITY_THRESHOLD){ //|| auto_transition_probability>=AUTO_TRANSITION_PROBABILITY_THRESHOLD){ //starting to move in the "right" direction, then RUN
-            agents[id].state = 0;
-            agents[id].cumulative_potential = 0.0f;
-        }
-        else if (sensed_potential - agents[id].previous_potential < -ODOR_THRESHOLD){ //|| auto_transition_probability<AUTO_TRANSITION_PROBABILITY_THRESHOLD){ //moving in the wrong direction, then PIROUETTE
-            agents[id].state = 1;
-            agents[id].cumulative_potential += (sensed_potential - agents[id].previous_potential);
-        }
-
-        float fx, fy, new_angle;
-        float mu, kappa, scale, shape;
-        int sub_state = agents[id].substate;
-        int base_index = id * N_STATES;
-        ExplorationState* explorationState = &d_explorationStates[base_index + sub_state];
-        float* probabilities = explorationState->probabilities;
-        mu = explorationState->angle_mu;    // this can be negative, set below, 50% chance
-        kappa = explorationState->angle_kappa;
-        scale = explorationState->speed_scale;
-        shape = explorationState->speed_spread;
-        float random_angle = (float)explorationState->angle_mu_sign * sample_from_von_mises(mu, kappa, states);//wrapped_cauchy(0.0, 0.6, &states[id]);//curand_normal(&states[id]) * M_PI/4;////
-        //float random_angle = sample_from_von_mises(mu, kappa, states);//wrapped_cauchy(0.0, 0.6, &states[id]);//curand_normal(&states[id]) * M_PI/4;////
-
-        //printf("sampled angle: %f with mu=%f kappa=%f sign=%d\n", random_angle, mu, kappa, explorationState->angle_mu_sign);
-        float lambda=0.0f; //@TODO: try to make it a function of the potential (and re-add the potential)
-
-        if(agents[id].state == 0){ //if the agent is moving = RUN - LOW TURNING - EXPLOIT
-            //if the max concentration is 0 (or best direction is 0,0), then choose random only (atan will give unreliable results)
-            if (max_concentration< ODOR_THRESHOLD || (max_concentration_x==0 && max_concentration_y==0) ) {
-
-                agents[id].angle += ((1.0f-lambda)* random_angle);
-            }
-            else {
-                float norm = sqrt(max_concentration_x * max_concentration_x + max_concentration_y * max_concentration_y);
-                float direction_x = max_concentration_x / norm;
-                float direction_y = max_concentration_y / norm;
-                float bias = atan2(direction_y, direction_x);
-
-                float current_angle = agents[id].angle;
-                if(bias-current_angle>=0){
-                    bias = M_PI / 4;
-                } else{
-                    bias = -M_PI / 4;
-                }
-
-                float k = KAPPA;// * pow(sensed_potential / max_concentration, 2);
-                new_angle = sample_from_von_mises(bias, k, &states[id]);
-
-                agents[id].angle += new_angle;
-            }
-
-        }
-        else{ //BROWNIAN MOTION - HIGH TURNING - EXPLORE
-            agents[id].angle += random_angle;
-
-        }
-
-        if(agents[id].angle>2 * M_PI || agents[id].angle<-2 * M_PI){
-            agents[id].angle = fmodf(agents[id].angle, 2*M_PI);
-        }
-
-        fx = cosf(agents[id].angle);
-        fy = sinf(agents[id].angle);
-
-        float new_speed = curand_log_normal(&states[id], logf(scale), shape);
-        while(new_speed>MAX_ALLOWED_SPEED) new_speed = curand_log_normal(&states[id], logf(scale), shape);
-        //printf("New Speed: %f with scale %f and shape %f\n", new_speed, scale, shape);
-
-        float dx = fx * new_speed;
-        float dy = fy * new_speed;
-
-        agents[id].previous_potential = sensed_potential;
-        agents[id].x += dx;
-        agents[id].y += dy;
-        agents[id].speed = new_speed;
-        // Apply periodic boundary conditions
-        if (agents[id].x < 0) agents[id].x += WIDTH;
-        if (agents[id].x >= WIDTH) agents[id].x -= WIDTH;
-        if (agents[id].y < 0) agents[id].y += HEIGHT;
-        if (agents[id].y >= HEIGHT) agents[id].y -= HEIGHT;
-        int new_x = (int)(agents[id].x / DX);
-        int new_y = (int)(agents[id].y / DY);
-
-
-        //printf("Current substate: %d, max duration %d id again (just to be sure) %d\n", agents[id].substate, explorationState->max_duration, explorationState->id);
-
-        agents[id].substate = select_next_state(probabilities, &states[id], N_STATES);
-            //printf("switching to state %d\n", agents[id].substate);
-        explorationState = &d_explorationStates[base_index + agents[id].substate];
-
-        //IF the new substate is different from the previous one, then choose sign for the angle mu and augments timesteps in this substate, otherwise set to 0
-        if(agents[id].substate != agents[id].previous_substate){
-            if(curand_uniform(&states[id])>0.5){
-                explorationState->angle_mu_sign *= -1;
-            }
-            explorationState->timesteps_in_state++;
-        } else {
-            explorationState->timesteps_in_state = 0;
-        }
-
-        agents[id].previous_substate = sub_state;
-        //check if the agent is in the target area
-        if (new_x >= 3* N/4 - TARGET_AREA_SIDE_LENGTH/2 && new_x < 3*N/4 + TARGET_AREA_SIDE_LENGTH/2 && new_y >= N/2 - TARGET_AREA_SIDE_LENGTH/2 && new_y < N/2 + TARGET_AREA_SIDE_LENGTH/2){
-            agents[id].is_agent_in_target_area = 1;
-            agents[id].steps_in_target_area++;
-            if(agents[id].first_timestep_in_target_area == -1){
-                agents[id].first_timestep_in_target_area = timestep;
-            }
-        }
-        else{
-            agents[id].is_agent_in_target_area = 0;
-        }
-
-    }
-}
 #endif //UNTITLED_AGENT_UPDATE_H

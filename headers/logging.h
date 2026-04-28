@@ -177,19 +177,14 @@ void saveInsideAreaToJSON(const char* filename, Agent* h_agents, int worm_count,
                          {"N", worm_count},
                          {"LOGGING_INTERVAL", LOGGING_INTERVAL},
                          {"N_STEPS",          N_STEPS}};
-    //log last inside_area bool
-    for (int i = 0; i < worm_count; ++i) {
-        //float distance_from_center = sqrt((h_agents[i].x - WIDTH/2)*(h_agents[i].x - WIDTH/2) + (h_agents[i].y - HEIGHT/2)*(h_agents[i].y - HEIGHT/2));
-        float distance_from_odor = sqrt((h_agents[i].x - 3*WIDTH/4)*(h_agents[i].x - 3*WIDTH/4) + (h_agents[i].y - HEIGHT/2)*(h_agents[i].y - HEIGHT/2));
-        log[std::to_string(i)].push_back({distance_from_odor, h_agents[i].first_timestep_in_target_area, h_agents[i].steps_in_target_area});
-    }
+
 
     std::ofstream outFile(filename);
     outFile << log.dump();  // Pretty-print JSON with an indentation of 4 spaces
     outFile.close();
 }
 
-void saveAllDataToJSON(const char* filename, float* positions, float* velocities, float* angles, Agent* agents, int worm_count, int n_steps, int* sub_states) {
+void saveAllDataToJSON(char* filename, float* positions, float* velocities, float* angles, Agent* agents, int worm_count, int n_steps, int* sub_states, float* dc, float* c, float avg_neighb) {
     nlohmann::json json_data;
     if(LOG_POSITIONS){
     json_data["positions"] = nlohmann::json::array();
@@ -200,6 +195,7 @@ void saveAllDataToJSON(const char* filename, float* positions, float* velocities
     if(LOG_ANGLES){
     json_data["angles"] = nlohmann::json::array();
     }
+    json_data["avg_neighbors"] = avg_neighb;
     json_data["sub_states"] = nlohmann::json::array();
     json_data["inside_area"] = nlohmann::json::array();
     json_data["parameters"] = {{"WIDTH",            WIDTH},
@@ -237,7 +233,11 @@ void saveAllDataToJSON(const char* filename, float* positions, float* velocities
                                {"GAMMA", GAMMA},
                                {"DIFFUSION_CONSTANT", DIFFUSION_CONSTANT},
                                {"ATTRACTION_STRENGTH", ATTRACTION_STRENGTH},
-                               {"ATTRACTION_SCALE", ATTRACTION_SCALE}};
+                               {"ATTRACTION_SCALE", ATTRACTION_SCALE},
+                               {"ODOR_X0", h_odor_x0},
+                               {"ODOR_Y0", h_odor_y0},
+        						{"ODOR_T0", ODOR_T0}
+    };
     for (int i = 0; i < worm_count; ++i) {
         nlohmann::json agent_data;
         if(LOG_POSITIONS){
@@ -250,6 +250,8 @@ void saveAllDataToJSON(const char* filename, float* positions, float* velocities
         agent_data["angles"] = nlohmann::json::array();
         }
         agent_data["sub_states"] = nlohmann::json::array();
+        agent_data["dc"] = nlohmann::json::array();
+        agent_data["c"] = nlohmann::json::array();
         if(LOG_POSITIONS || LOG_VELOCITIES || LOG_ANGLES) {
             for (int j = 0; j < n_steps; ++j) {
                 if (LOG_POSITIONS) {
@@ -263,6 +265,10 @@ void saveAllDataToJSON(const char* filename, float* positions, float* velocities
                     agent_data["angles"].push_back(angles[j * worm_count + i]);
                 }
                 agent_data["sub_states"].push_back(sub_states[j * worm_count + i]);
+                for (int k=0; k<N_STATES*N_STATES; k++){
+            		agent_data["dc"].push_back(dc[j * worm_count + i + k*worm_count* n_steps]);
+                    }
+                agent_data["c"].push_back(c[j * worm_count + i]);
             }
         }
         if(LOG_POSITIONS){
@@ -275,8 +281,8 @@ void saveAllDataToJSON(const char* filename, float* positions, float* velocities
         json_data["angles"].push_back(agent_data["angles"]);
         }
         json_data["sub_states"].push_back(agent_data["sub_states"]);
-        float distance_from_odor = sqrt((agents[i].x - 3*WIDTH/4)*(agents[i].x - 3*WIDTH/4) + (agents[i].y - HEIGHT/2)*(agents[i].y - HEIGHT/2));
-        json_data["inside_area"].push_back({distance_from_odor, agents[i].first_timestep_in_target_area, agents[i].steps_in_target_area, agents[i].is_agent_in_target_area});
+        json_data["dc"].push_back(agent_data["dc"]);
+        json_data["c"].push_back(agent_data["c"]);
     }
 
     std::ofstream file(filename);

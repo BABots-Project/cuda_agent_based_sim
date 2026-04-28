@@ -6,6 +6,15 @@
 #define UNTITLED_GAUSSIAN_ODOUR_H
 #include <cuda_runtime.h>
 
+
+__device__ float diffusionProfile(float x, float y, float t, float D=2.52e-2f){
+    if (t <= 0) {
+        return 0.0f; // No diffusion at time t=0
+    }
+
+    return MAX_CONCENTRATION * expf(-((x-odor_x0)*(x-odor_x0)+(y-odor_y0)*(y-odor_y0))/(4*DIFFUSION_CONSTANT*(t+ODOR_T0)));
+}
+
 __device__ float gaussianDensity(float x, float y, float mu_x, float mu_y, float a, float sigma_x, float sigma_y) {
     // Compute the 2D Gaussian density for a single Gaussian centered at (mu_x, mu_y)
     float dx = x - mu_x;
