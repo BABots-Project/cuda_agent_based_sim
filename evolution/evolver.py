@@ -41,10 +41,18 @@ EPS                = 1e-6
 
 COEFF_RANGE     = (-5.0,  5.0)
 INTERCEPT_RANGE = (-20.0, 0.0)  # crossing always in valid N range
+HEIGHT_RANGE    = (0.0,   1.0)
 
-PARAM_RANGES = [
+'''PARAM_RANGES = [
     COEFF_RANGE if i % 2 == 0 else INTERCEPT_RANGE
     for i in range(24)
+]'''
+# triplets: coeff, intercept, height
+PARAM_RANGES = [
+    COEFF_RANGE if i % 3 == 0 else
+    INTERCEPT_RANGE if i % 3 == 1 else
+    HEIGHT_RANGE
+    for i in range(36)
 ]
 
 DOMAIN_W = 60.0
@@ -70,12 +78,13 @@ with open(OFF_FOOD_PATH) as f:
 
 # ─── JSON helpers ─────────────────────────────────────────────────────────────
 
-def _neutral_entry(coeff: float, intercept: float, p_off_food: float) -> dict:
+def _neutral_entry(coeff: float, intercept: float, height:float, p_off_food: float) -> dict:
     return {
         "p_off_food":      p_off_food,
         "tau":             -1,
         "model_coeff":     coeff,
         "model_intercept": intercept,
+        "model_height":    height,
         "mean":            0,
         "std":             1,
         "p_relevant":      0,
@@ -89,8 +98,9 @@ def write_l1(params: np.ndarray):
     for idx, state in enumerate(STATES):
         coeff      = float(params[idx * 2])
         intercept  = float(params[idx * 2 + 1])
+        height    = float(params[idx * 3 + 2])
         p_off_food = OFF_FOOD[str(state)][str(state)]
-        l1[str(state)] = _neutral_entry(coeff, intercept, p_off_food)
+        l1[str(state)] = _neutral_entry(coeff, intercept, height, p_off_food)
     with open(L1_PATH, "w") as f:
         json.dump(l1, f, indent=2)
 
@@ -101,8 +111,9 @@ def write_l2(params: np.ndarray):
     for t_idx, (src, dst) in enumerate(TRANSITIONS):
         coeff      = float(params[6 + t_idx * 2])
         intercept  = float(params[6 + t_idx * 2 + 1])
+        height    = float(params[9 + t_idx * 3 + 2])
         p_off_food = OFF_FOOD[str(src)][str(dst)]
-        l2[str(src)][str(dst)] = _neutral_entry(coeff, intercept, p_off_food)
+        l2[str(src)][str(dst)] = _neutral_entry(coeff, intercept, height, p_off_food)
     with open(L2_PATH, "w") as f:
         json.dump(l2, f, indent=2)
 
@@ -284,7 +295,7 @@ def fitness_diffusion(metrics: dict) -> float:
 # ─── CMA-ES ───────────────────────────────────────────────────────────────────
 
 def run_cmaes(fitness_fn, label: str) -> tuple[np.ndarray, float]:
-    x0 = np.zeros(24)   # maps to midpoint of each range (coeff=0, intercept=0)
+    x0 = np.zeros(36)
 
     es = cma.CMAEvolutionStrategy(
         x0,
@@ -295,7 +306,7 @@ def run_cmaes(fitness_fn, label: str) -> tuple[np.ndarray, float]:
             "verbose": 1,
             "tolx":    1e-3,
             "tolfun":  1e-3,
-            "bounds":  [[-1.0] * 24, [1.0] * 24],
+            "bounds": [[-1.0] * 36, [1.0] * 36],
         },
     )
 
@@ -360,7 +371,7 @@ def run_cmaes(fitness_fn, label: str) -> tuple[np.ndarray, float]:
             print(f"  [LOG] Saved cluster fractions → {log_path}")
 
         iteration += 1
-
+    print(f"  [{label}] Stopped because: {es.stop()}")
     print(f"\n[{label}] Done. Best fitness = {best_fitness:.4f}")
     return best_params, best_fitness
 

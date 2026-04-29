@@ -167,6 +167,12 @@ __global__ void moveAgentsCollective(Agent* agents, curandState* local_state, in
         new_angle = fmodf(new_angle + M_PI, 2 * M_PI);
 		if (new_angle < 0) new_angle += 2 * M_PI;
 		new_angle -= M_PI;
+
+        //density dependent linear speed    modulation
+        float alpha_speed = 0.1f; //
+        float speed_factor = fmaxf(0.3f, 1.0f - alpha_speed * (float)agents[agent_id].neighbor_count); //clip to avoid negative speed
+        speed *= speed_factor;
+
 		//clip speed to 0-MAXIMUM_ALLOWED_SPEED
         if(speed<0.0f) speed=0.0f;
         if(speed>MAX_ALLOWED_SPEED) speed=MAX_ALLOWED_SPEED;
@@ -266,7 +272,8 @@ __global__ void updateAgentStateCollective(
     	{
 
         	float z = model.coeff *  (float) agents[agent_id].neighbor_count + model.intercept;
-        	float val = 1.0f / (1.0f + expf(-z));
+        	float height = model.height;  // new field in TransitionModel
+            float val = height / (1.0f + expf(-z));
         	p_r_raw[i] = val;
         	sum_r += val;
     	}

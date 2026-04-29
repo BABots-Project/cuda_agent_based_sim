@@ -259,6 +259,7 @@ struct TransitionModel
     float intercept;
     float mean, std; //scale params
     int sign;
+    float height;
 };
 
 struct TransitionFactor{
@@ -354,6 +355,7 @@ struct TransitionModelHost
     float intercept;
     float mean, std; //scale params
     int sign;
+    float height;
 };
 
 struct TransitionBiasHost{
@@ -693,6 +695,7 @@ void load_exit_data(TransitionModelHost* exit_models, const char* filename)
         exit_models[i].p_off_food = src["p_off_food"].get<float>();
         exit_models[i].coeff      = src["model_coeff"].get<float>();
         exit_models[i].intercept  = src["model_intercept"].get<float>();
+        exit_models[i].height     = src["model_height"].get<float>();
     }
 }
 
@@ -727,6 +730,7 @@ void load_transition_data(TransitionModelHost* models, const char* filename, flo
             models[idx].mean       = src_to["mean"].get<float>();
             models[idx].std        = src_to["std"].get<float>();
         	models[idx].sign       = src_to["sign"].get<int>();
+            models[idx].height     = src_to["model_height"].get<float>();
         }
     }
 }

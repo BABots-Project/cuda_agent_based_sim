@@ -59,8 +59,8 @@ plt.rcParams.update({
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-def logistic(N, coeff, intercept):
-    return 1.0 / (1.0 + np.exp(-(coeff * N + intercept)))
+def logistic(N, coeff, intercept, height):
+    return height / (1.0 + np.exp(-(coeff * N + intercept)))
 
 
 def load_json(path):
@@ -77,12 +77,12 @@ def load_behaviour(label):
 
 def get_l1_params(l1_data, state):
     entry = l1_data[str(state)]
-    return entry["model_coeff"], entry["model_intercept"]
+    return entry["model_coeff"], entry["model_intercept"], entry["model_height"]
 
 
 def get_l2_params(l2_data, src, dst):
     entry = l2_data[str(src)][str(dst)]
-    return entry["model_coeff"], entry["model_intercept"]
+    return entry["model_coeff"], entry["model_intercept"], entry["model_height"]
 
 
 def style_ax(ax, title):
@@ -97,7 +97,7 @@ def style_ax(ax, title):
 
 
 # ─── Main plot ────────────────────────────────────────────────────────────────
-
+import glob
 def main():
     logs = sorted(glob.glob(os.path.join(LOG_DIR, "AGGREGATION_iter*_cluster_fractions.json")))
 
@@ -105,12 +105,14 @@ def main():
     ax.set_facecolor(PANEL_BG)
 
     cmap = plt.cm.plasma
+    iterations = []
     for i, path in enumerate(logs):
-    with open(path) as f:
-        d = json.load(f)
-    color = cmap(i / max(len(logs) - 1, 1))
-    ax.plot(d["fractions"], color=color, linewidth=1.2, alpha=0.85,
-            label=f"iter {d['iteration']:04d}  fit={d['fitness']:.4f}")
+        with open(path) as f:
+            d = json.load(f)
+        iterations.append(d["iteration"])
+        color = cmap(i / max(len(logs) - 1, 1))
+        ax.plot(d["fractions"], color=color, linewidth=1.2, alpha=0.85,
+                label=f"iter {d['iteration']:04d}  fit={d['fitness']:.4f}")
 
     ax.set_xlabel("timestep", color=TEXT_COL, fontsize=9)
     ax.set_ylabel("largest cluster / N", color=TEXT_COL, fontsize=9)
@@ -119,16 +121,17 @@ def main():
     ax.tick_params(colors=TEXT_COL, labelsize=7)
     ax.grid(color=GRID_COL, linewidth=0.5, alpha=0.8)
     for spine in ax.spines.values():
-    spine.set_edgecolor(GRID_COL)
+        spine.set_edgecolor(GRID_COL)
 
-    # colorbar as a proxy for iteration progress
-    sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(
-    vmin=logs[0], vmax=logs[-1]) if logs else plt.Normalize())
+    sm = plt.cm.ScalarMappable(
+        cmap=cmap,
+        norm=plt.Normalize(vmin=iterations[0], vmax=iterations[-1]) if iterations else plt.Normalize()
+    )
     fig.colorbar(sm, ax=ax, label="iteration progress").ax.yaxis.label.set_color(TEXT_COL)
 
     ax.legend(fontsize=6, loc="upper left", framealpha=0.3,
-          facecolor=PANEL_BG, edgecolor=GRID_COL, labelcolor=TEXT_COL,
-          ncol=2)
+              facecolor=PANEL_BG, edgecolor=GRID_COL, labelcolor=TEXT_COL,
+              ncol=2)
 
     plt.tight_layout()
     plt.savefig(os.path.join(LOG_DIR, "cluster_fractions_progress.png"), dpi=150, facecolor=DARK_BG)
@@ -162,8 +165,8 @@ def main():
         for s_idx, state in enumerate(STATES):
             ax = fig.add_subplot(l1_grid[s_idx])
             style_ax(ax, f"L1 · Exit probability · {STATE_LABELS[state]}")
-            coeff, intercept = get_l1_params(l1_data, state)
-            ax.plot(N, logistic(N, coeff, intercept),
+            coeff, intercept, height = get_l1_params(l1_data, state)
+            ax.plot(N, logistic(N, coeff, intercept, height),
                     color=PALETTE[b], linewidth=2.0)
             ax.axhspan(0, 1, alpha=0.03, color=STATE_COLORS[s_idx])
 
@@ -172,8 +175,8 @@ def main():
             ax = fig.add_subplot(l2_grid[s_idx])
             style_ax(ax, f"L2 · Transition probability · from {STATE_LABELS[src]}")
             for dst in STATES:
-                coeff, intercept = get_l2_params(l2_data, src, dst)
-                ax.plot(N, logistic(N, coeff, intercept),
+                coeff, intercept, height = get_l2_params(l2_data, src, dst)
+                ax.plot(N, logistic(N, coeff, intercept, height),
                         color=STATE_COLORS[dst],
                         linewidth=2.2 if src == dst else 1.4,
                         linestyle="--" if src == dst else "-",
