@@ -134,8 +134,12 @@ __global__ void moveAgentsCollective(Agent* agents, curandState* local_state, in
             if (dist < 0.5f) neighbor_count++;
         }
 
-        // you're already computing this — just store it
+        // you're already computing this — just store itv
+        agents[agent_id].delta_neighbor_count = agents[agent_id].neighbor_count - agents[agent_id].prev_neighbor_count;
+        agents[agent_id].prev_neighbor_count  = agents[agent_id].neighbor_count;
         agents[agent_id].neighbor_count = neighbor_count;
+        //if(timestep==0) printf("Agent %d has %d neighbors\n", agent_id, neighbor_count);
+        //if(timestep==1799) printf("Agent %d has %d neighbors at the end\n", agent_id, neighbor_count);
 
         StateParams* sp = &params[agent_state];
         float speed, angle_change;
@@ -184,7 +188,7 @@ __global__ void moveAgentsCollective(Agent* agents, curandState* local_state, in
 
         //density dependent linear speed    modulation
         float alpha_speed = 0.1f; //
-        float speed_factor = fmaxf(0.5f, 1.0f - alpha_speed * (float)agents[agent_id].neighbor_count); //clip to avoid negative speed
+        float speed_factor = fmaxf(0.2f, 1.0f - alpha_speed * (float)agents[agent_id].neighbor_count); //clip to avoid negative speed
         speed *= speed_factor;
 
 		//clip speed to 0-MAXIMUM_ALLOWED_SPEED
@@ -231,10 +235,10 @@ __global__ void updateAgentStateCollective(
     if (agent_id >= worm_count)
         return;
 
-    if(agents[agent_id].state_duration>1 && agents[agent_id].state==2 && agents[agent_id].neighbor_count>0){ //only consider early exit for run state
+    if(agents[agent_id].state_duration>1 && agents[agent_id].state==2 ){//&& agents[agent_id].neighbor_count>0){ //only consider early exit for run state
       TransitionModel exit_model = d_exit_models[agents[agent_id].state];
       //use exit model to determine if the agent should exit the state early -- it's a logistic function on the number of neighbors
-        float p_exit = exit_model.height / (1.0f + expf(-exit_model.coeff * (float)agents[agent_id].neighbor_count + exit_model.intercept));
+        float p_exit = exit_model.height / (1.0f + expf(-exit_model.coeff * (float)agents[agent_id].delta_neighbor_count + exit_model.intercept));
         float u = curand_uniform(&rng_states[agent_id]);
         if (u < p_exit) {
           //set duration to 0
@@ -266,7 +270,7 @@ __global__ void updateAgentStateCollective(
     	const TransitionModel& model =
         	d_transition_models[agent_state * N_STATES + i];
 
-    	if ((model.coeff==-1 && model.intercept==-1) || agents[agent_id].neighbor_count<1)
+    	if ((model.coeff==-1 && model.intercept==-1))// || agents[agent_id].neighbor_count<1)
     	{
           	//printf("No neighbors or no model for transition %d->%d (agent %d, neighbors=%d)\n", agent_state, i, agent_id, agents[agent_id].neighbor_count);
         	p[i] = model.p_off_food;
@@ -276,7 +280,7 @@ __global__ void updateAgentStateCollective(
     	else
     	{
 
-        	float z = model.coeff *  (float) agents[agent_id].neighbor_count + model.intercept;
+        	float z = model.coeff *  (float) agents[agent_id].delta_neighbor_count + model.intercept;
         	float height = model.height;  // new field in TransitionModel
             float val = height / (1.0f + expf(-z));
         	p_r_raw[i] = val;
@@ -294,7 +298,7 @@ __global__ void updateAgentStateCollective(
         	const TransitionModel& model =
             	d_transition_models[agent_state * N_STATES + i];
 
-        	if (!(model.coeff==-1 && model.intercept==-1 ) || agents[agent_id].neighbor_count>0)//|| fabsf(agents[agent_id].accumulated_dc_tot) < ODOR_THRESHOLD))
+        	if (!(model.coeff==-1 && model.intercept==-1 ))// || agents[agent_id].neighbor_count>0)//|| fabsf(agents[agent_id].accumulated_dc_tot) < ODOR_THRESHOLD))
         	{
             	p[i] = (p_r_raw[i] / sum_r) * remaining_mass;
         	}

@@ -383,6 +383,7 @@ struct Agent {
 	float run_amp = 0.0f;
     int agent_id;
     int neighbor_count;
+    int prev_neighbor_count, delta_neighbor_count;
 };
 
 struct TransitionFactorHost{
@@ -882,6 +883,8 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
         agents[id].accumulated_dc_tot = 0.0f;
         agents[id].angle_sign = 1;
         agents[id].neighbor_count = 0;
+        agents[id].prev_neighbor_count = 0;
+        agents[id].delta_neighbor_count = 0;
     }
 }
 

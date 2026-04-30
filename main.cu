@@ -195,7 +195,7 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < WORM_COUNT; i++)
         avg_neighbors += (float)h_neighbor_sum[i] / h_timestep_count;
     avg_neighbors /= WORM_COUNT;
-
+    printf("overall average neighbors per agent: %.2f\n", avg_neighbors);
     if(LOG_GENERIC_TARGET_DATA) {
         saveAllDataToJSON(target_json, positions, velocities, angles, h_agents ,WORM_COUNT, N_STEPS, sub_states, dc, c, avg_neighbors);
     }

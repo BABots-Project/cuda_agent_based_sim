@@ -140,7 +140,7 @@ def main():
 
 
     behaviours = ["server"]#"diffusion"]#["aggregation", "diffusion"]
-    N = np.linspace(0, 20, 300)
+    N = np.linspace(-20, 20, 300)
 
     data = {}
     for b in behaviours:

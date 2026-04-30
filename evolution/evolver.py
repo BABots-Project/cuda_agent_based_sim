@@ -40,7 +40,7 @@ EPS                = 1e-6
 # ─── Parameter scaling ────────────────────────────────────────────────────────
 
 COEFF_RANGE     = (-5.0,  5.0)
-INTERCEPT_RANGE = (-20.0, 0.0)  # crossing always in valid N range
+INTERCEPT_RANGE = (-20.0, 20.0)  # crossing always in valid N range
 HEIGHT_RANGE    = (0.0,   1.0)
 
 '''PARAM_RANGES = [
@@ -317,8 +317,8 @@ def fitness_aggregation(metrics: dict) -> float:
 def fitness_diffusion(metrics: dict) -> float:
     # minimize neighbors, maximize spread → minimize avg_n + 1/(dist_to_com + eps)
     #return metrics["avg_neighbors"] + 1.0 / (metrics["mean_dist_to_com"] + EPS)
-    return -metrics["diffusion_coefficient"]  # maximize D
-
+    #return -metrics["diffusion_coefficient"]  # maximize D
+    return metrics["avg_neighbors"]
 # ─── CMA-ES ───────────────────────────────────────────────────────────────────
 
 def run_cmaes(fitness_fn, label: str) -> tuple[np.ndarray, float]:
