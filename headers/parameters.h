@@ -7,12 +7,12 @@
 #define HEIGHT 60.0f
 #define SEED 1233
 // Simulation parameters
-#define WORM_COUNT 100
+#define WORM_COUNT 10
 #define N_STEPS 1800
 #define LOGGING_INTERVAL 1
 #define DT 0.33f
 #define DEBUG false
-#define ENABLE_RANDOM_INITIAL_POSITIONS true
+#define ENABLE_RANDOM_INITIAL_POSITIONS false
 #define INITIAL_AREA_NUMBER_OF_CELLS 10
 #define ENABLE_MAXIMUM_NUMBER_OF_AGENTS_PER_CELL false
 #define MAXIMUM_AGENTS_PER_CELL 40
@@ -74,7 +74,7 @@ int h_STATE_MAX_DURATIONS[N_STATES] = {10, 6, 1000};
 #define SIGMA_X 10.0f   // Standard deviation in x direction
 #define SIGMA_Y 10.0f   // Standard deviation in y direction
 #define TARGET_AREA_SIDE_LENGTH 40
-#define MAX_CONCENTRATION 0.01f
+#define MAX_CONCENTRATION 0.0f
 #define GAMMA 0.0001f
 #define DIFFUSION_CONSTANT 2.52e-2f //
 #define ATTRACTION_STRENGTH 0.0282f

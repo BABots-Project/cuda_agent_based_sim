@@ -125,6 +125,17 @@ __global__ void moveAgentsCollective(Agent* agents, curandState* local_state, in
   int agent_id = threadIdx.x + blockIdx.x * blockDim.x;
     if (agent_id<worm_count) {
       int agent_state = agents[agent_id].state;
+		int neighbor_count = 0;
+        for (int j = 0; j < WORM_COUNT; j++) {
+            if (agent_id == j) continue;
+            float a_dx = agents[agent_id].x - agents[j].x;
+            float a_dy = agents[agent_id].y - agents[j].y;
+            float dist = sqrtf(a_dx*a_dx + a_dy*a_dy);
+            if (dist < 0.5f) neighbor_count++;
+        }
+
+        // you're already computing this — just store it
+        agents[agent_id].neighbor_count = neighbor_count;
 
         StateParams* sp = &params[agent_state];
         float speed, angle_change;
@@ -136,18 +147,18 @@ __global__ void moveAgentsCollective(Agent* agents, curandState* local_state, in
             // initialize once when entering run
     		if (agents[agent_id].previous_state != 2 || timestep==0) {
                   if(agents[agent_id].agent_id ==0){
-        				float zP = curand_normal(&local_rng);
-        				float sampled_period = roundf(expf(mu_period + sigma_period * zP));
-        				if (sampled_period < 4)  sampled_period = 4;
-        				if (sampled_period > 60) sampled_period = 60;
+        				//float zP = curand_normal(&local_rng);
+        				//float sampled_period = roundf(expf(mu_period + sigma_period * zP));
+        				//if (sampled_period < 4)  sampled_period = 4;
+        				//if (sampled_period > 60) sampled_period = 60;
 
-        				agents[agent_id].run_omega = 2.0f * 3.14159265f / sampled_period; //
+        				agents[agent_id].run_omega = 2.0f * 3.14159265f / 8.0f;//sampled_period; //
 
-        				float zA = curand_normal(&local_rng);
+        				/*float zA = curand_normal(&local_rng);
         				float a = mu_score + std_score * zA;//
         				if (a < 0.213f) a = 0.213f;
-        				if (a > 0.850f) a = 0.850f;
-        				agents[agent_id].run_amp = a;
+        				if (a > 0.850f) a = 0.850f;*/
+        				agents[agent_id].run_amp = 0.55f;
 					}
         		agents[agent_id].phi = 0.0f;//sample_von_mises(&local_rng, 1.5f);// sample_von_mises(&local_rng, agents[agent_id].kappa);//2.0f * 3.14159265f * curand_uniform(&local_rng);
     		}
@@ -170,7 +181,7 @@ __global__ void moveAgentsCollective(Agent* agents, curandState* local_state, in
 
         //density dependent linear speed    modulation
         float alpha_speed = 0.1f; //
-        float speed_factor = fmaxf(0.3f, 1.0f - alpha_speed * (float)agents[agent_id].neighbor_count); //clip to avoid negative speed
+        float speed_factor = fmaxf(0.5f, 1.0f - alpha_speed * (float)agents[agent_id].neighbor_count); //clip to avoid negative speed
         speed *= speed_factor;
 
 		//clip speed to 0-MAXIMUM_ALLOWED_SPEED
@@ -199,17 +210,7 @@ __global__ void moveAgentsCollective(Agent* agents, curandState* local_state, in
         agents[agent_id].angle = new_angle;
         agents[agent_id].angle_change = angle_change;
 
-        int neighbor_count = 0;
-        for (int j = 0; j < WORM_COUNT; j++) {
-            if (agent_id == j) continue;
-            float a_dx = agents[agent_id].x - agents[j].x;
-            float a_dy = agents[agent_id].y - agents[j].y;
-            float dist = sqrtf(a_dx*a_dx + a_dy*a_dy);
-            if (dist < 0.5f) neighbor_count++;
-        }
 
-        // you're already computing this — just store it
-        agents[agent_id].neighbor_count = neighbor_count;
 
 		local_state[agent_id] = local_rng;
 
@@ -227,7 +228,7 @@ __global__ void updateAgentStateCollective(
     if (agent_id >= worm_count)
         return;
 
-    if(agents[agent_id].state_duration>1){
+    if(agents[agent_id].state_duration>1 && agents[agent_id].state==2){ //only consider early exit for run state
       TransitionModel exit_model = d_exit_models[agents[agent_id].state];
       //use exit model to determine if the agent should exit the state early -- it's a logistic function on the number of neighbors
         float p_exit = 1.0f / (1.0f + expf(-exit_model.coeff * (float)agents[agent_id].neighbor_count + exit_model.intercept));

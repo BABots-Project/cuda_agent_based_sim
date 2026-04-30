@@ -690,6 +690,7 @@ void load_exit_data(TransitionModelHost* exit_models, const char* filename)
     json data = json::parse(file);
     for (int i = 0; i < N_STATES; i++)
     {
+      	if (i!=2) continue;
         auto& src = data[state_ids[i]];
 
         exit_models[i].p_off_food = src["p_off_food"].get<float>();
@@ -841,8 +842,8 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
             agents[id].x = WIDTH / 2;
             agents[id].y = HEIGHT / 2;
             //add random offset of 1mm
-            agents[id].x += (curand_uniform(&states[id]) - 0.5f) * 2.0f;
-            agents[id].y += (curand_uniform(&states[id]) - 0.5f) * 2.0f;
+            agents[id].x += (curand_uniform(&states[id]) - 0.5f) * sqrt(10.0f);
+            agents[id].y += (curand_uniform(&states[id]) - 0.5f) * sqrt(10.0f);
 
 
         }
@@ -861,7 +862,7 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
         agents[id].agent_id = agent_id;
         agents[id].run_omega = 0.0f;
         agents[id].run_amp = 0.0f;
-        agents[id].kappa = 2.0f + 5.0f * curand_uniform(&states[id]);
+        agents[id].kappa =3.0f;// 2.0f + 5.0f * curand_uniform(&states[id]);
         if(agent_id>=37){
             agents[id].run_omega = 3.0f * M_PI / d_agent_periods[agent_id - 37];
             agents[id].run_amp = d_agent_amplitudes[agent_id - 37];

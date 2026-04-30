@@ -47,12 +47,12 @@ HEIGHT_RANGE    = (0.0,   1.0)
     COEFF_RANGE if i % 2 == 0 else INTERCEPT_RANGE
     for i in range(24)
 ]'''
-# triplets: coeff, intercept, height
+# triplets: coeff, intercept, height — 1 for L1, 9 for L2
 PARAM_RANGES = [
     COEFF_RANGE if i % 3 == 0 else
     INTERCEPT_RANGE if i % 3 == 1 else
     HEIGHT_RANGE
-    for i in range(36)
+    for i in range(30)  # 3 + 27
 ]
 
 DOMAIN_W = 60.0
@@ -61,7 +61,7 @@ DOMAIN_H = 60.0
 LOG_EVERY   = 20
 LOG_DIR     = os.path.join(SCRIPT_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
-
+L1_STATES = [2]  # only evolve L1 for state 2
 
 def denormalize(x: np.ndarray) -> np.ndarray:
     """Map normalized [-1, 1] vector to actual parameter ranges."""
@@ -93,12 +93,11 @@ def _neutral_entry(coeff: float, intercept: float, height:float, p_off_food: flo
 
 
 def write_l1(params: np.ndarray):
-    """params is the DENORMALIZED vector."""
     l1 = {}
-    for idx, state in enumerate(STATES):
-        coeff      = float(params[idx * 2])
-        intercept  = float(params[idx * 2 + 1])
-        height    = float(params[idx * 3 + 2])
+    for idx, state in enumerate(L1_STATES):
+        coeff      = float(params[idx * 3])
+        intercept  = float(params[idx * 3 + 1])
+        height     = float(params[idx * 3 + 2])
         p_off_food = OFF_FOOD[str(state)][str(state)]
         l1[str(state)] = _neutral_entry(coeff, intercept, height, p_off_food)
     with open(L1_PATH, "w") as f:
@@ -106,12 +105,11 @@ def write_l1(params: np.ndarray):
 
 
 def write_l2(params: np.ndarray):
-    """params is the DENORMALIZED vector."""
     l2 = {str(s): {} for s in STATES}
     for t_idx, (src, dst) in enumerate(TRANSITIONS):
-        coeff      = float(params[6 + t_idx * 2])
-        intercept  = float(params[6 + t_idx * 2 + 1])
-        height    = float(params[9 + t_idx * 3 + 2])
+        coeff      = float(params[3 + t_idx * 3])
+        intercept  = float(params[3 + t_idx * 3 + 1])
+        height     = float(params[3 + t_idx * 3 + 2])
         p_off_food = OFF_FOOD[str(src)][str(dst)]
         l2[str(src)][str(dst)] = _neutral_entry(coeff, intercept, height, p_off_food)
     with open(L2_PATH, "w") as f:
@@ -234,12 +232,15 @@ def evaluate(x_norm: np.ndarray) -> dict:
                 union(i, j)
 
     fractions = compute_largest_cluster_fractions(pos)
+    msd = compute_msd(pos)
+    diffusion_coefficient = compute_diffusion_coefficient(msd)
 
     return {
-        "avg_neighbors":              avg_n,
-        "mean_dist_to_com":           mean_dist_to_com,
-        "mean_cluster_size":          float(np.mean(fractions) * n_agents),
-        "largest_cluster_fractions":  fractions,
+        "avg_neighbors":          avg_n,
+        "mean_dist_to_com":       mean_dist_to_com,
+        "mean_cluster_size":      float(np.mean(fractions) * n_agents),
+        "largest_cluster_fractions": fractions,
+        "diffusion_coefficient":  diffusion_coefficient,
     }
 
 
@@ -283,30 +284,56 @@ def compute_largest_cluster_fractions(pos: np.ndarray) -> np.ndarray:
 
     return fractions
 
+def compute_msd(pos: np.ndarray) -> np.ndarray:
+    """
+    pos: (n_agents, n_frames, 2)
+    Returns MSD at each time lag from 0 to n_frames-1.
+    """
+    n_agents, n_frames, _ = pos.shape
+    msd = np.zeros(n_frames)
+    for tau in range(n_frames):
+        # displacement from initial position at lag tau
+        disp = pos[:, tau, :] - pos[:, 0, :]
+        # wrap for periodic boundaries
+        disp[:, 0] -= DOMAIN_W * np.round(disp[:, 0] / DOMAIN_W)
+        disp[:, 1] -= DOMAIN_H * np.round(disp[:, 1] / DOMAIN_H)
+        msd[tau] = np.mean((disp ** 2).sum(axis=1))
+    return msd
+
+
+def compute_diffusion_coefficient(msd: np.ndarray) -> float:
+    """Fit MSD = 4Dt (2D diffusion) and return D."""
+    n = len(msd)
+    t = np.arange(n, dtype=float)
+    # fit only the linear portion — skip first 10% (ballistic) and last 10% (boundary effects)
+    lo = max(1, int(0.1 * n))
+    hi = int(0.9 * n)
+    slope, _ = np.polyfit(t[lo:hi], msd[lo:hi], 1)
+    return slope / 4.0  # D = slope / (2 * n_dims)
 
 def fitness_aggregation(metrics: dict) -> float:
     return -np.mean(metrics["largest_cluster_fractions"])
 
 def fitness_diffusion(metrics: dict) -> float:
     # minimize neighbors, maximize spread → minimize avg_n + 1/(dist_to_com + eps)
-    return metrics["avg_neighbors"] + 1.0 / (metrics["mean_dist_to_com"] + EPS)
-
+    #return metrics["avg_neighbors"] + 1.0 / (metrics["mean_dist_to_com"] + EPS)
+    return -metrics["diffusion_coefficient"]  # maximize D
 
 # ─── CMA-ES ───────────────────────────────────────────────────────────────────
 
 def run_cmaes(fitness_fn, label: str) -> tuple[np.ndarray, float]:
-    x0 = np.zeros(36)
+    x0 = np.zeros(30)
 
     es = cma.CMAEvolutionStrategy(
         x0,
-        0.5,            # sigma in normalized space — 0.5 is a quarter of [-1,1]
+        0.6,            # sigma in normalized space — 0.5 is a quarter of [-1,1]
         {
             "maxiter": 200,
-            "popsize": 13,  # 4 + floor(3 * ln(24))
+            "popsize": 14,  # 4 + floor(3 * ln(24))
             "verbose": 1,
-            "tolx":    1e-3,
-            "tolfun":  1e-3,
-            "bounds": [[-1.0] * 36, [1.0] * 36],
+            "tolx":    1e-6,
+            "tolfun":  1e-6,
+            "bounds": [[-1.0] * 30, [1.0] * 30],
         },
     )
 

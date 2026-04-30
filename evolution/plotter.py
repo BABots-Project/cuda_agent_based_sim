@@ -99,7 +99,7 @@ def style_ax(ax, title):
 # ─── Main plot ────────────────────────────────────────────────────────────────
 import glob
 def main():
-    logs = sorted(glob.glob(os.path.join(LOG_DIR, "AGGREGATION_iter*_cluster_fractions.json")))
+    logs = sorted(glob.glob(os.path.join(LOG_DIR, "DIFFUSION_iter*_cluster_fractions.json")))
 
     fig, ax = plt.subplots(figsize=(12, 5), facecolor=DARK_BG)
     ax.set_facecolor(PANEL_BG)
@@ -138,7 +138,7 @@ def main():
     plt.show()
 
 
-    behaviours = ["aggregation", "diffusion"]
+    behaviours = ["diffusion"]#["aggregation", "diffusion"]
     N = np.linspace(0, 20, 300)
 
     data = {}
