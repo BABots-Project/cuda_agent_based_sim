@@ -38,6 +38,7 @@ LOG_DIR   = "logs"
 PALETTE = {
     "aggregation": "#f4a261",   # warm amber
     "diffusion":   "#48cae4",   # cool cyan
+    "server":     "#ff6b6b",   # vibrant red
 }
 
 STATE_COLORS = ["#c77dff", "#80ffdb", "#ff6b6b"]  # per state
@@ -138,7 +139,7 @@ def main():
     plt.show()
 
 
-    behaviours = ["diffusion"]#["aggregation", "diffusion"]
+    behaviours = ["server"]#"diffusion"]#["aggregation", "diffusion"]
     N = np.linspace(0, 20, 300)
 
     data = {}
@@ -163,6 +164,9 @@ def main():
 
         # L1
         for s_idx, state in enumerate(STATES):
+            if s_idx!=2:
+                continue
+
             ax = fig.add_subplot(l1_grid[s_idx])
             style_ax(ax, f"L1 · Exit probability · {STATE_LABELS[state]}")
             coeff, intercept, height = get_l1_params(l1_data, state)

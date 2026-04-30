@@ -171,6 +171,9 @@ __global__ void moveAgentsCollective(Agent* agents, curandState* local_state, in
     		float sigma_theta = sample_von_mises(&local_rng, agents[agent_id].kappa); // tune from residuals of real data
     		angle_change = agents[agent_id].run_amp * sinf(agents[agent_id].phi)
                   + sigma_theta;
+            //do not exceed +/-1.5rad
+            //scale from [-pi, pi] to [-1.5, 1.5]
+            angle_change /= 2.0f;
 		}
 
         float new_angle =agents[agent_id].angle+angle_change;
@@ -228,10 +231,10 @@ __global__ void updateAgentStateCollective(
     if (agent_id >= worm_count)
         return;
 
-    if(agents[agent_id].state_duration>1 && agents[agent_id].state==2){ //only consider early exit for run state
+    if(agents[agent_id].state_duration>1 && agents[agent_id].state==2 && agents[agent_id].neighbor_count>0){ //only consider early exit for run state
       TransitionModel exit_model = d_exit_models[agents[agent_id].state];
       //use exit model to determine if the agent should exit the state early -- it's a logistic function on the number of neighbors
-        float p_exit = 1.0f / (1.0f + expf(-exit_model.coeff * (float)agents[agent_id].neighbor_count + exit_model.intercept));
+        float p_exit = exit_model.height / (1.0f + expf(-exit_model.coeff * (float)agents[agent_id].neighbor_count + exit_model.intercept));
         float u = curand_uniform(&rng_states[agent_id]);
         if (u < p_exit) {
           //set duration to 0
@@ -263,8 +266,9 @@ __global__ void updateAgentStateCollective(
     	const TransitionModel& model =
         	d_transition_models[agent_state * N_STATES + i];
 
-    	if (model.coeff==-1 && model.intercept==-1 )
+    	if ((model.coeff==-1 && model.intercept==-1) || agents[agent_id].neighbor_count<1)
     	{
+          	//printf("No neighbors or no model for transition %d->%d (agent %d, neighbors=%d)\n", agent_state, i, agent_id, agents[agent_id].neighbor_count);
         	p[i] = model.p_off_food;
         	p_irr += p[i];
         	p_r_raw[i] = 0.0f; // important
@@ -290,7 +294,7 @@ __global__ void updateAgentStateCollective(
         	const TransitionModel& model =
             	d_transition_models[agent_state * N_STATES + i];
 
-        	if (!(model.coeff==-1 && model.intercept==-1 ))//|| fabsf(agents[agent_id].accumulated_dc_tot) < ODOR_THRESHOLD))
+        	if (!(model.coeff==-1 && model.intercept==-1 ) || agents[agent_id].neighbor_count>0)//|| fabsf(agents[agent_id].accumulated_dc_tot) < ODOR_THRESHOLD))
         	{
             	p[i] = (p_r_raw[i] / sum_r) * remaining_mass;
         	}

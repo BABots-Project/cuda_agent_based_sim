@@ -23,9 +23,8 @@ def load_and_animate_agents_and_grid2(json_file_path, fps, dest_file_path="anima
     sub_states = [[data["sub_states"][agent][timestep] for timestep in range(int(N_STEPS // LOGGING_INTERVAL))] for agent in range(N)]
     sub_states_map = {
         0: "Reversal",
-        1: "Run",
-        2: "Walk",
-        3: "Turn"
+        1: "Turn",
+        2: "Run"
     }
 
     # Prepare the figure and axis
@@ -101,7 +100,7 @@ def load_and_animate_agents_and_grid2(json_file_path, fps, dest_file_path="anima
         if MAX_CONCENTRATION>0:
             Z = calculate_gaussian_density(dt*frame*LOGGING_INTERVAL, X, Y)
             im.set_data(Z)
-            ax.set_title(sub_states_map[sub_states[0][frame]])
+        ax.set_title(sub_states_map[sub_states[0][frame]])
         return scatters + traces + [im]
 
     # Create the animation

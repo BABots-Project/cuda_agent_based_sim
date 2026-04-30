@@ -7,7 +7,7 @@
 #define HEIGHT 60.0f
 #define SEED 1233
 // Simulation parameters
-#define WORM_COUNT 10
+#define WORM_COUNT 100
 #define N_STEPS 1800
 #define LOGGING_INTERVAL 1
 #define DT 0.33f

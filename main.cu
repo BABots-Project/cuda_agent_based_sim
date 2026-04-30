@@ -28,8 +28,8 @@ void get_last_error() {
 
 int main(int argc, char* argv[]) {
     const char *extracted_params_filename = "/state_estimations/behavior_distributions_off_food.json";
-    const char *transition_params_filename = "/state_estimations/l2.json";
-    const char *exit_params_filename = "/state_estimations/l1.json";
+    const char *transition_params_filename = "/state_estimations/l2_server.json";
+    const char *exit_params_filename = "/state_estimations/l1_server.json";
     const char* transition_factors_filename = "/state_estimations/transition_factors.json";
     const char* bias_filename = "/state_estimations/transition_angle_bias.json";
     const char* duration_lognormal_params_filename = "/state_estimations/duration_lognormal_params_all_conditions.json";
