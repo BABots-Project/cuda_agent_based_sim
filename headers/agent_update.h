@@ -173,11 +173,13 @@ __global__ void moveAgentsCollective(Agent* agents, curandState* local_state, in
 
     // mean-zero angle noise widens the distribution around 0
     		float sigma_theta = sample_von_mises(&local_rng, agents[agent_id].kappa); // tune from residuals of real data
-    		angle_change = agents[agent_id].run_amp * sinf(agents[agent_id].phi)
+    		//scale from [-pi, pi] to [-1.5, 1.5]
+            sigma_theta /= 2.0f;
+
+                angle_change = agents[agent_id].run_amp * sinf(agents[agent_id].phi)
                   + sigma_theta;
             //do not exceed +/-1.5rad
-            //scale from [-pi, pi] to [-1.5, 1.5]
-            angle_change /= 2.0f;
+
 		}
 
         float new_angle =agents[agent_id].angle+angle_change;

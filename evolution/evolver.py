@@ -192,55 +192,44 @@ def compute_metrics(agent_id: int) -> dict:
     }
 
 
+N_ENSEMBLE = 5
+
 def evaluate(x_norm: np.ndarray) -> dict:
     params = denormalize(x_norm)
     write_l1(params)
     write_l2(params)
-    run_simulator()
 
-    path = os.path.join(SIM_OUTPUT_DIR, "auto_agents_100_all_data.json")
-    with open(path) as f:
-        data = json.load(f)
+    all_avg_n       = []
+    all_dist_com    = []
+    all_fractions   = []
 
-    avg_n            = float(data["avg_neighbors"])
-    pos              = np.array(data["positions"])   # (n_agents, n_frames, 2)
-    n_agents, n_frames, _ = pos.shape
+    for run in range(N_ENSEMBLE):
+        run_simulator()
 
-    com              = pos.mean(axis=0)
-    dist_to_com      = np.linalg.norm(pos - com[None, :, :], axis=2)
-    mean_dist_to_com = float(dist_to_com.mean())
+        path = os.path.join(SIM_OUTPUT_DIR, "auto_agents_100_all_data.json")
+        with open(path) as f:
+            data = json.load(f)
 
-    last   = pos[:, -1, :]
-    diff   = last[:, None, :] - last[None, :, :]
-    adj    = np.sqrt((diff ** 2).sum(axis=2)) < NEIGHBOR_RADIUS_MM
-    np.fill_diagonal(adj, False)
+        avg_n         = float(data["avg_neighbors"])
+        pos           = np.array(data["positions"])   # (n_agents, n_frames, 2)
+        n_agents, n_frames, _ = pos.shape
 
-    parent = list(range(n_agents))
+        com           = pos.mean(axis=0)
+        dist_to_com   = np.linalg.norm(pos - com[None, :, :], axis=2)
+        fractions     = compute_largest_cluster_fractions(pos)
 
-    def find(x):
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
+        all_avg_n.append(avg_n)
+        all_dist_com.append(float(dist_to_com.mean()))
+        all_fractions.append(fractions)
 
-    def union(a, b):
-        parent[find(a)] = find(b)
-
-    for i in range(n_agents):
-        for j in range(i + 1, n_agents):
-            if adj[i, j]:
-                union(i, j)
-
-    fractions = compute_largest_cluster_fractions(pos)
-    msd = compute_msd(pos)
-    diffusion_coefficient = compute_diffusion_coefficient(msd)
+    # average metrics across ensemble
+    mean_fractions = np.mean(all_fractions, axis=0)  # (n_frames,)
 
     return {
-        "avg_neighbors":          avg_n,
-        "mean_dist_to_com":       mean_dist_to_com,
-        "mean_cluster_size":      float(np.mean(fractions) * n_agents),
-        "largest_cluster_fractions": fractions,
-        "diffusion_coefficient":  diffusion_coefficient,
+        "avg_neighbors":             float(np.mean(all_avg_n)),
+        "mean_dist_to_com":          float(np.mean(all_dist_com)),
+        "mean_cluster_size":         float(np.mean(mean_fractions) * n_agents),
+        "largest_cluster_fractions": mean_fractions,
     }
 
 
@@ -312,7 +301,8 @@ def compute_diffusion_coefficient(msd: np.ndarray) -> float:
     return slope / 4.0  # D = slope / (2 * n_dims)
 
 def fitness_aggregation(metrics: dict) -> float:
-    return -np.mean(metrics["largest_cluster_fractions"])
+    #return -np.mean(metrics["largest_cluster_fractions"])
+    return -metrics["avg_neighbors"] #
 
 def fitness_diffusion(metrics: dict) -> float:
     # minimize neighbors, maximize spread → minimize avg_n + 1/(dist_to_com + eps)
@@ -419,7 +409,21 @@ def save_result(x_norm: np.ndarray, label: str):
         with open(dst, "w") as f:
             json.dump(data, f, indent=2)
     print(f"[{label}] Saved optimized JSONs with _{suffix} suffix.")
+def write_empty_l1l2():
+    """Write l1/l2 with all model params set to -1 (baseline/control)."""
+    l1 = {}
+    for state in STATES:
+        p_off_food = OFF_FOOD[str(state)][str(state)]
+        l1[str(state)] = _neutral_entry(-1.0, -1.0, -1.0, p_off_food)
+    with open(L1_PATH, "w") as f:
+        json.dump(l1, f, indent=2)
 
+    l2 = {str(s): {} for s in STATES}
+    for src, dst in TRANSITIONS:
+        p_off_food = OFF_FOOD[str(src)][str(dst)]
+        l2[str(src)][str(dst)] = _neutral_entry(-1.0, -1.0, -1.0, p_off_food)
+    with open(L2_PATH, "w") as f:
+        json.dump(l2, f, indent=2)
 
 # ─── Entry point ──────────────────────────────────────────────────────────────
 

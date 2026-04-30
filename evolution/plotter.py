@@ -139,7 +139,7 @@ def main():
     plt.show()
 
 
-    behaviours = ["server"]#"diffusion"]#["aggregation", "diffusion"]
+    behaviours = ["diffusion"]#"server"]#["aggregation", "diffusion"]
     N = np.linspace(-20, 20, 300)
 
     data = {}
