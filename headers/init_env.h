@@ -842,10 +842,14 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
             //initialise at the center
             agents[id].x = WIDTH / 2;
             agents[id].y = HEIGHT / 2;
-            //add random offset of 1mm
+            //add random offset of 1mm -- DIFFUSION
             agents[id].x += (curand_uniform(&states[id]) - 0.5f) * sqrt(10.0f);
             agents[id].y += (curand_uniform(&states[id]) - 0.5f) * sqrt(10.0f);
-
+			if(TASK == "aggregation"){
+            	//initialise in a circle of radius 30 in the center -- AGGREGATION
+            	agents[id].x = WIDTH / 2 + cos(2.0f * M_PI * curand_uniform(&states[id])) * 30.0f;
+            	agents[id].y = HEIGHT / 2 + sin(2.0f * M_PI * curand_uniform(&states[id])) * 30.0f;
+			}
 
         }
         //generate angle in the range [-pi, pi]
