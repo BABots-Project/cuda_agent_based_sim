@@ -13,7 +13,7 @@
 #define DT 0.33f
 #define DEBUG false
 #define ENABLE_RANDOM_INITIAL_POSITIONS false
-#define TASK "aggregation"
+#define TASK "aggregation"//"diffusion"//
 #define INITIAL_AREA_NUMBER_OF_CELLS 10
 #define ENABLE_MAXIMUM_NUMBER_OF_AGENTS_PER_CELL false
 #define MAXIMUM_AGENTS_PER_CELL 40
