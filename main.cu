@@ -86,7 +86,7 @@ int main(int argc, char* argv[]) {
     int agent_id = 0;
     char target_json[256];
     char label_sequence_filename[256];
-    /*if (argc >= 4) { //first is output dir, second is seed, last, if available, is agent id for single agent logging
+    if (false && argc >= 4) { //first is output dir, second is seed, last, if available, is agent id for single agent logging
         agent_id = atoi(argv[1]);
         snprintf(target_json, sizeof(target_json), "/sim/simulated_worm_%d.json", agent_id);
         snprintf(label_sequence_filename, sizeof(label_sequence_filename),
@@ -100,7 +100,7 @@ int main(int argc, char* argv[]) {
         snprintf(target_json, sizeof(target_json), "/sim/auto_agents_100_all_data.json");
         //snprintf(label_sequence_filename, sizeof(label_sequence_filename),"/state_estimations/off_food_label_sequences/worm_45_labels.json");
 
-     }*/
+     }
 	DurationLognormalHost duration_lognormal_params_host[N_STATES], *h_roaming_duration = new DurationLognormalHost;
 	StateParams* d_params = nullptr;
 	load_distributions(
