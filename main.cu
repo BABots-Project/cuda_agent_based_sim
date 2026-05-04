@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
     int agent_id = 0;
     char target_json[256];
     char label_sequence_filename[256];
-    if (argc >= 2) {
+    if (argc >= 3) { //first is seed, second is agent id for single agent logging
         agent_id = atoi(argv[1]);
         snprintf(target_json, sizeof(target_json), "/sim/simulated_worm_%d.json", agent_id);
         snprintf(label_sequence_filename, sizeof(label_sequence_filename),
