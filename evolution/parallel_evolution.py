@@ -18,6 +18,17 @@ import cma
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import signal
+import sys
+
+def _cleanup(sig, frame):
+    print("\n[INTERRUPTED] Killing all docker containers...")
+    os.system("docker ps -q | xargs docker kill 2>/dev/null")
+    sys.exit(1)
+
+signal.signal(signal.SIGINT,  _cleanup)
+signal.signal(signal.SIGTERM, _cleanup)
+
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR     = os.path.dirname(os.path.abspath(__file__))
