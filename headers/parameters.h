@@ -3,11 +3,11 @@
 // Environmental variables
 #define OPTIMISING true
 #define N 256
-#define WIDTH 60.0f
-#define HEIGHT 60.0f
+#define WIDTH 10.0f
+#define HEIGHT 10.0f
 #define SEED 1233
 // Simulation parameters
-#define WORM_COUNT 100
+#define WORM_COUNT 10000
 #define N_STEPS 1800
 #define LOGGING_INTERVAL 1
 #define DT 0.33f
@@ -22,11 +22,14 @@
 #define LOG_PHEROMONES false
 #define LOG_AGENT_COUNT_GRID false
 #define LOG_GENERIC_TARGET_DATA true
-#define LOG_POSITIONS true
-#define LOG_ANGLES true
-#define LOG_VELOCITIES true
+#define LOG_POSITIONS false
+#define LOG_ANGLES false
+#define LOG_VELOCITIES false
 #define LOG_REPULSIVE_PHEROMONE true
 #define LOG_BACTERIAL_LAWN true
+#define LOG_STATES false
+#define LOG_DC false
+#define LOG_C false
 
 
 // Agent parameters

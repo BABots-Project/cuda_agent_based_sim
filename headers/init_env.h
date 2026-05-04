@@ -277,7 +277,7 @@ struct PRoam{
   };
 
 __constant__ BehaviorDistribution d_behavior_distributions[N_STATES];
-__constant__ TransitionModel d_transition_models[N_STATES*N_STATES];
+__constant__ TransitionModel d_transition_models[N_STATES*N_STATES], d_transition_models_b[N_STATES*N_STATES];
 __constant__ TransitionModel d_exit_models[N_STATES];
 __constant__ float odor_x0;
 __constant__ float odor_y0;
@@ -797,6 +797,15 @@ void upload_transition_models(TransitionModelHost* h_models)
     );
 }
 
+void upload_transition_models_b(TransitionModelHost* h_models)
+{
+    cudaMemcpyToSymbol(
+        d_transition_models_b,
+        h_models,
+        sizeof(TransitionModel) * N_STATES * N_STATES
+    );
+}
+
 void upload_transition_factors(TransitionFactorHost* h_factors)
 {
     cudaMemcpyToSymbol(
@@ -847,8 +856,10 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
             agents[id].y += (curand_uniform(&states[id]) - 0.5f) * sqrt(10.0f);
 			if(TASK == "aggregation"){
             	//initialise in a circle of radius 15 in the center -- AGGREGATION
-            	agents[id].x = WIDTH / 2 + cos(2.0f * M_PI * curand_uniform(&states[id])) * 15.0f;
-            	agents[id].y = HEIGHT / 2 + sin(2.0f * M_PI * curand_uniform(&states[id])) * 15.0f;
+            	//agents[id].x = WIDTH / 2 + cos(2.0f * M_PI * curand_uniform(&states[id])) * 15.0f;
+            	//agents[id].y = HEIGHT / 2 + sin(2.0f * M_PI * curand_uniform(&states[id])) * 15.0f;
+                agents[id].x = curand_uniform(&states[id]) * WIDTH;
+                agents[id].y = curand_uniform(&states[id]) * HEIGHT;
 			}
 
         }

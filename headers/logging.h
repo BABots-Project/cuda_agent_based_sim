@@ -184,6 +184,15 @@ void saveInsideAreaToJSON(const char* filename, Agent* h_agents, int worm_count,
     outFile.close();
 }
 
+void saveOnlyAvgNeighbors(char* filename, float avg_neighb) {
+    json log;
+    log["avg_neighbors"] = avg_neighb;
+
+    std::ofstream outFile(filename);
+    outFile << log.dump(4);  // Pretty-print JSON with an indentation of 4 spaces
+    outFile.close();
+}
+
 void saveAllDataToJSON(char* filename, float* positions, float* velocities, float* angles, Agent* agents, int worm_count, int n_steps, int* sub_states, float* dc, float* c, float avg_neighb) {
     nlohmann::json json_data;
     if(LOG_POSITIONS){
@@ -196,7 +205,7 @@ void saveAllDataToJSON(char* filename, float* positions, float* velocities, floa
     json_data["angles"] = nlohmann::json::array();
     }
     json_data["avg_neighbors"] = avg_neighb;
-    json_data["sub_states"] = nlohmann::json::array();
+    if(LOG_STATES) json_data["sub_states"] = nlohmann::json::array();
     json_data["inside_area"] = nlohmann::json::array();
     json_data["parameters"] = {{"WIDTH",            WIDTH},
                                {"HEIGHT",           HEIGHT},
@@ -264,11 +273,14 @@ void saveAllDataToJSON(char* filename, float* positions, float* velocities, floa
                 if (LOG_ANGLES) {
                     agent_data["angles"].push_back(angles[j * worm_count + i]);
                 }
-                agent_data["sub_states"].push_back(sub_states[j * worm_count + i]);
-                for (int k=0; k<N_STATES*N_STATES; k++){
+                if(LOG_STATES) agent_data["sub_states"].push_back(sub_states[j * worm_count + i]);
+                if(LOG_DC) {
+                  for (int k=0; k<N_STATES*N_STATES; k++){
             		agent_data["dc"].push_back(dc[j * worm_count + i + k*worm_count* n_steps]);
                     }
-                agent_data["c"].push_back(c[j * worm_count + i]);
+                }
+
+                if (LOG_C) agent_data["c"].push_back(c[j * worm_count + i]);
             }
         }
         if(LOG_POSITIONS){
@@ -280,9 +292,9 @@ void saveAllDataToJSON(char* filename, float* positions, float* velocities, floa
         if(LOG_ANGLES){
         json_data["angles"].push_back(agent_data["angles"]);
         }
-        json_data["sub_states"].push_back(agent_data["sub_states"]);
-        json_data["dc"].push_back(agent_data["dc"]);
-        json_data["c"].push_back(agent_data["c"]);
+        if(LOG_STATES) json_data["sub_states"].push_back(agent_data["sub_states"]);
+        if(LOG_DC) json_data["dc"].push_back(agent_data["dc"]);
+        if(LOG_C) json_data["c"].push_back(agent_data["c"]);
     }
 
     std::ofstream file(filename);

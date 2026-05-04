@@ -211,7 +211,7 @@ def evaluate(x_norm: np.ndarray) -> dict:
             data = json.load(f)
 
         avg_n         = float(data["avg_neighbors"])
-        pos           = np.array(data["positions"])   # (n_agents, n_frames, 2)
+        '''pos           = np.array(data["positions"])   # (n_agents, n_frames, 2)
         n_agents, n_frames, _ = pos.shape
 
         com           = pos.mean(axis=0)
@@ -220,16 +220,16 @@ def evaluate(x_norm: np.ndarray) -> dict:
 
         all_avg_n.append(avg_n)
         all_dist_com.append(float(dist_to_com.mean()))
-        all_fractions.append(fractions)
+        all_fractions.append(fractions)'''
 
     # average metrics across ensemble
-    mean_fractions = np.mean(all_fractions, axis=0)  # (n_frames,)
+    #mean_fractions = np.mean(all_fractions, axis=0)  # (n_frames,)
 
     return {
-        "avg_neighbors":             float(np.mean(all_avg_n)),
-        "mean_dist_to_com":          float(np.mean(all_dist_com)),
-        "mean_cluster_size":         float(np.mean(mean_fractions) * n_agents),
-        "largest_cluster_fractions": mean_fractions,
+        "avg_neighbors":             float(np.mean(all_avg_n))#,
+        #"mean_dist_to_com":          float(np.mean(all_dist_com)),
+        #"mean_cluster_size":         float(np.mean(mean_fractions) * n_agents),
+        #"largest_cluster_fractions": mean_fractions,
     }
 
 
@@ -383,7 +383,7 @@ def run_cmaes(fitness_fn, label: str) -> tuple[np.ndarray, float]:
                 json.dump({
                     "iteration":  iteration,
                     "fitness":    fitnesses[best_idx],
-                    "fractions":  fractions.tolist(),   # one value per timestep
+                    #"fractions":  fractions.tolist(),   # one value per timestep
                 }, f, indent=2)
             print(f"  [LOG] Saved cluster fractions → {log_path}")
 
