@@ -40,7 +40,7 @@ EPS                = 1e-6
 # ─── Parameter scaling ────────────────────────────────────────────────────────
 
 COEFF_RANGE     = (-5.0,  5.0)
-INTERCEPT_RANGE = (-20.0, 20.0)  # crossing always in valid N range
+INTERCEPT_RANGE = (-20.0, 0)  # crossing always in valid N range
 HEIGHT_RANGE    = (0.0,   1.0)
 
 '''PARAM_RANGES = [
@@ -118,9 +118,9 @@ def write_l2(params: np.ndarray):
 
 # ─── Simulator interface ───────────────────────────────────────────────────────
 
-def run_simulator():
+def run_simulator(seed: int):
     result = subprocess.run(
-        ["bash", RUN_SCRIPT],
+        ["bash", RUN_SCRIPT, str(seed)],
         cwd=SIM_ROOT,
         capture_output=True,
         text=True,
@@ -204,7 +204,7 @@ def evaluate(x_norm: np.ndarray) -> dict:
     all_fractions   = []
 
     for run in range(N_ENSEMBLE):
-        run_simulator()
+        run_simulator(seed=run)
 
         path = os.path.join(SIM_OUTPUT_DIR, "auto_agents_100_all_data.json")
         with open(path) as f:
@@ -302,7 +302,7 @@ def compute_diffusion_coefficient(msd: np.ndarray) -> float:
 
 def fitness_aggregation(metrics: dict) -> float:
     #return -np.mean(metrics["largest_cluster_fractions"])
-    return -metrics["avg_neighbors"] #
+    return -metrics["avg_neighbors"] + metrics["mean_dist_to_com"]
 
 def fitness_diffusion(metrics: dict) -> float:
     # minimize neighbors, maximize spread → minimize avg_n + 1/(dist_to_com + eps)

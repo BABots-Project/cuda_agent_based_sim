@@ -242,7 +242,9 @@ __global__ void updateAgentStateCollective(
     if(agents[agent_id].state_duration>1 && agents[agent_id].state==2 ){//&& agents[agent_id].neighbor_count>0){ //only consider early exit for run state
       TransitionModel exit_model = d_exit_models[agents[agent_id].state];
       //use exit model to determine if the agent should exit the state early -- it's a logistic function on the number of neighbors
-        float p_exit = exit_model.height / (1.0f + expf(-exit_model.coeff * (float)agents[agent_id].delta_neighbor_count + exit_model.intercept));
+        //float p_exit = exit_model.height / (1.0f + expf(-exit_model.coeff * (float)agents[agent_id].delta_neighbor_count + exit_model.intercept));
+        float p_exit = exit_model.height / (1.0f + expf(-exit_model.coeff * (float)agents[agent_id].neighbor_count + exit_model.intercept));
+
         float u = curand_uniform(&rng_states[agent_id]);
         if (u < p_exit) {
           //set duration to 0
@@ -284,8 +286,10 @@ __global__ void updateAgentStateCollective(
     	else
     	{
 
-        	float z = model.coeff *  (float) agents[agent_id].delta_neighbor_count + model.intercept;
-        	float height = model.height;  // new field in TransitionModel
+        	//float z = model.coeff *  (float) agents[agent_id].delta_neighbor_count + model.intercept;
+        	float z = model.coeff *  (float) agents[agent_id].neighbor_count + model.intercept;
+
+            float height = model.height;  // new field in TransitionModel
             float val = height / (1.0f + expf(-z));
         	p_r_raw[i] = val;
         	sum_r += val;

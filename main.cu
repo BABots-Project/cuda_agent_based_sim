@@ -15,7 +15,7 @@ __global__ void initialize_rng(curandState* states, unsigned long seed) {
     if (id < WORM_COUNT) {
         // Use a combination of seed, agent ID, and time to ensure unique seeds
         //curand_init(seed + id, 0, 0, &states[id]);
-        curand_init(SEED, id, 0, &states[id]);
+        curand_init(seed, id, 0, &states[id]);
     }
 }
 
@@ -36,6 +36,8 @@ int main(int argc, char* argv[]) {
     const char* p_roam_filename = "/state_estimations/p_roam_all_conditions.json";
 	const char* duration_betaprime_params_filename = "/state_estimations/duration_params.json";
     const char* joint_distribution_file_name = "/state_estimations/joint_distributions_off_food.json";
+
+    int seed = argc > 1 ? atoi(argv[1]) : SEED;
 
     // Device-side accumulators (allocated once before the sim loop)
     int*   d_neighbor_sum;    // one int per agent
@@ -92,7 +94,7 @@ int main(int argc, char* argv[]) {
     cudaMalloc(&d_agents, size);
     cudaMalloc(&d_curand_states, WORM_COUNT * sizeof(curandState));
 
-    initialize_rng<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_curand_states, SEED);
+    initialize_rng<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_curand_states, seed);
     get_last_error();
     cudaDeviceSynchronize();
     initAgents<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, time(NULL), WORM_COUNT, agent_id);

@@ -32,4 +32,4 @@ echo "Running container with GPU support..."
 docker run --rm --privileged --gpus all \
     -v "$STATE_ESTIMATIONS_HOST":"$STATE_ESTIMATIONS_CONTAINER" \
     -v "$SIMULATION_HOST":"$SIMULATION_CONTAINER" \
-    "$IMAGE_NAME"
+    "$IMAGE_NAME" "$seed"
