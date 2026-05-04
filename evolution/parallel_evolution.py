@@ -307,7 +307,7 @@ def evaluate_population(solutions: list, fitness_fn) -> list:
     popsize = len(solutions)
     fitnesses = [1e6] * popsize
 
-    with ThreadPoolExecutor(max_workers=popsize) as ex:
+    with ThreadPoolExecutor(max_workers=popsize//2) as ex:
         futures = {
             ex.submit(evaluate_candidate, i, sol): i
             for i, sol in enumerate(solutions)
