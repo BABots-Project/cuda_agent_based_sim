@@ -370,7 +370,7 @@ def run_cmaes(fitness_fn, label: str) -> tuple[np.ndarray, float]:
             params   = denormalize(best_sol)
             write_l1(params)
             write_l2(params)
-            run_simulator()
+            run_simulator(seed=0)  # fixed seed for logging
 
             path = os.path.join(SIM_OUTPUT_DIR, "auto_agents_100_all_data.json")
             with open(path) as f:
