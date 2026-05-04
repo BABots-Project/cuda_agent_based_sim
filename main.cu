@@ -137,7 +137,7 @@ int main(int argc, char* argv[]) {
     load_transition_data(h_transitions, transition_params_filename, frequencies_host);
     printf("Uploading transition data to device...\n");
     upload_transition_models(h_transitions);
-    if(TASK=="aggregation"){
+    if(TASK=="aggregation-diff"){
         load_transition_data(h_transition_b, transition_b_params_filename, frequencies_host);
         upload_transition_models_b(h_transition_b);
     }
