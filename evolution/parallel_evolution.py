@@ -156,6 +156,10 @@ def run_single(cand_idx: int, run_idx: int, l1_path: str, l2_path: str) -> dict:
         text=True,
     )
 
+    print("returncode:", result.returncode)
+    print("STDOUT:\n", result.stdout[-2000:])
+    print("STDERR:\n", result.stderr[-2000:])
+
     if result.returncode != 0:
         raise RuntimeError(
             f"[cand={cand_idx} run={run_idx}] docker failed:\n{result.stderr[-1000:]}"
