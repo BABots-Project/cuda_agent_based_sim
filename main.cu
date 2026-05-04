@@ -9,6 +9,7 @@
 #include "headers/update_matrices.h"
 #include "headers/logging.h"
 #include "headers/gaussian_odour.h"
+#include <cstring>
 
 __global__ void initialize_rng(curandState* states, unsigned long seed) {
     int id = blockIdx.x * blockDim.x + threadIdx.x;
@@ -29,6 +30,7 @@ void get_last_error() {
 int main(int argc, char* argv[]) {
     const char *extracted_params_filename = "/state_estimations/behavior_distributions_off_food.json";
     const char *transition_params_filename = "/state_estimations/l2.json";
+    const char *transition_b_params_filename = "/state_estimations/l2b.json";
     const char *exit_params_filename = "/state_estimations/l1.json";
     const char* transition_factors_filename = "/state_estimations/transition_factors.json";
     const char* bias_filename = "/state_estimations/transition_angle_bias.json";
@@ -37,8 +39,26 @@ int main(int argc, char* argv[]) {
 	const char* duration_betaprime_params_filename = "/state_estimations/duration_params.json";
     const char* joint_distribution_file_name = "/state_estimations/joint_distributions_off_food.json";
 
-    int seed = argc > 1 ? atoi(argv[1]) : SEED;
+    //int seed = argc > 1 ? atoi(argv[1]) : SEED;
+    const char* output_dir = "/outputs";
+    int seed = SEED;
 
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--output-dir") == 0 && i+1 < argc)
+            output_dir = argv[++i];
+        else if (strcmp(argv[i], "--seed") == 0 && i+1 < argc)
+            seed = atoi(argv[++i]);
+    }
+
+    // create output dir only if length is greater than 0 (i.e. if it was provided as an argument)
+
+    char mkdir_cmd[512];
+    snprintf(mkdir_cmd, sizeof(mkdir_cmd), "mkdir -p %s", output_dir);
+    system(mkdir_cmd);
+
+    // build output path
+    char output_path[512];
+    snprintf(output_path, sizeof(output_path), "%s/auto_agents_100_all_data.json", output_dir);
     // Device-side accumulators (allocated once before the sim loop)
     int*   d_neighbor_sum;    // one int per agent
     int*   d_timestep_count;  // scalar
@@ -49,6 +69,7 @@ int main(int argc, char* argv[]) {
     BehaviorDistributionHost* h_states = new BehaviorDistributionHost[N_STATES];
     TransitionBiasHost* h_biases = new TransitionBiasHost[N_STATES*N_STATES];
     TransitionModelHost* h_transitions = new TransitionModelHost[N_STATES*N_STATES];
+    TransitionModelHost* h_transition_b = new TransitionModelHost[N_STATES*N_STATES];
     TransitionModelHost* h_exit = new TransitionModelHost[N_STATES];
     TransitionFactorHost* h_transition_factors = new TransitionFactorHost[N_STATES*N_STATES];
     PRoamHost* h_proam = new PRoamHost;
@@ -65,7 +86,7 @@ int main(int argc, char* argv[]) {
     int agent_id = 0;
     char target_json[256];
     char label_sequence_filename[256];
-    if (argc >= 3) { //first is seed, second is agent id for single agent logging
+    /*if (argc >= 4) { //first is output dir, second is seed, last, if available, is agent id for single agent logging
         agent_id = atoi(argv[1]);
         snprintf(target_json, sizeof(target_json), "/sim/simulated_worm_%d.json", agent_id);
         snprintf(label_sequence_filename, sizeof(label_sequence_filename),
@@ -79,7 +100,7 @@ int main(int argc, char* argv[]) {
         snprintf(target_json, sizeof(target_json), "/sim/auto_agents_100_all_data.json");
         //snprintf(label_sequence_filename, sizeof(label_sequence_filename),"/state_estimations/off_food_label_sequences/worm_45_labels.json");
 
-     }
+     }*/
 	DurationLognormalHost duration_lognormal_params_host[N_STATES], *h_roaming_duration = new DurationLognormalHost;
 	StateParams* d_params = nullptr;
 	load_distributions(
@@ -116,6 +137,10 @@ int main(int argc, char* argv[]) {
     load_transition_data(h_transitions, transition_params_filename, frequencies_host);
     printf("Uploading transition data to device...\n");
     upload_transition_models(h_transitions);
+    if(TASK=="aggregation"){
+        load_transition_data(h_transition_b, transition_b_params_filename, frequencies_host);
+        upload_transition_models_b(h_transition_b);
+    }
     printf("Loading transition factors from file...\n");
     load_transition_factors(h_transition_factors, transition_factors_filename);
     printf("Uploading transition factors to device...\n");
@@ -198,10 +223,11 @@ int main(int argc, char* argv[]) {
         avg_neighbors += (float)h_neighbor_sum[i] / h_timestep_count;
     avg_neighbors /= WORM_COUNT;
     printf("overall average neighbors per agent: %.2f\n", avg_neighbors);
-    if(LOG_GENERIC_TARGET_DATA) {
-        saveAllDataToJSON(target_json, positions, velocities, angles, h_agents ,WORM_COUNT, N_STEPS, sub_states, dc, c, avg_neighbors);
-    }
-    printf("Logging complete to %s\n", target_json);
+    /*if(LOG_GENERIC_TARGET_DATA) {
+        saveAllDataToJSON(output_path, positions, velocities, angles, h_agents ,WORM_COUNT, N_STEPS, sub_states, dc, c, avg_neighbors);
+    }*/
+    saveOnlyAvgNeighbors(output_path, avg_neighbors);
+    printf("Logging complete to %s\n", output_path);
 
     printf("Simulation complete. Cleaning up...\n");
     cudaFree(d_agents);
