@@ -224,7 +224,7 @@ int main(int argc, char* argv[]) {
     avg_neighbors /= WORM_COUNT;
     printf("overall average neighbors per agent: %.2f\n", avg_neighbors);
     /*if(LOG_GENERIC_TARGET_DATA) {
-        saveAllDataToJSON(output_path, positions, velocities, angles, h_agents ,WORM_COUNT, N_STEPS, sub_states, dc, c, avg_neighbors);
+        saveAllDataToJSON(target_json, positions, velocities, angles, h_agents ,WORM_COUNT, N_STEPS, sub_states, dc, c, avg_neighbors);
     }*/
     saveOnlyAvgNeighbors(output_path, avg_neighbors);
     printf("Logging complete to %s\n", output_path);

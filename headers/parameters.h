@@ -7,7 +7,7 @@
 #define HEIGHT 10.0f
 #define SEED 1233
 // Simulation parameters
-#define WORM_COUNT 10000
+#define WORM_COUNT 1000
 #define N_STEPS 1800
 #define LOGGING_INTERVAL 1
 #define DT 0.33f
@@ -22,14 +22,17 @@
 #define LOG_PHEROMONES false
 #define LOG_AGENT_COUNT_GRID false
 #define LOG_GENERIC_TARGET_DATA true
-#define LOG_POSITIONS false
-#define LOG_ANGLES false
-#define LOG_VELOCITIES false
+#define LOG_POSITIONS true
+#define LOG_ANGLES true
+#define LOG_VELOCITIES true
 #define LOG_REPULSIVE_PHEROMONE true
 #define LOG_BACTERIAL_LAWN true
-#define LOG_STATES false
+#define LOG_STATES true
 #define LOG_DC false
 #define LOG_C false
+#define OCCLUSION_RADIUS 0.2f
+#define SENSING_RADIUS 0.5f
+
 
 
 // Agent parameters
@@ -38,7 +41,6 @@ std::string* state_ids = new std::string[N_STATES]{"0", "1", "2"};
 __constant__ int STATE_MAX_DURATIONS[N_STATES] = {10, 6, 1000};
 int h_STATE_MAX_DURATIONS[N_STATES] = {10, 6, 1000};
 
-#define SENSING_RADIUS 0.01f
 #define SPEED 0.1f
 #define SENSING_RANGE 1
 #define POTENTIAL_THRESHOLD 1e-4f

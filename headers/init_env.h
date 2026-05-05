@@ -384,6 +384,7 @@ struct Agent {
     int agent_id;
     int neighbor_count;
     int prev_neighbor_count, delta_neighbor_count;
+    int occlusion_neighbor_count;
 };
 
 struct TransitionFactorHost{
@@ -900,6 +901,16 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
         agents[id].neighbor_count = 0;
         agents[id].prev_neighbor_count = 0;
         agents[id].delta_neighbor_count = 0;
+        agents[id].occlusion_neighbor_count = 0;
+        for (int j = 0; j < WORM_COUNT; j++) {
+            if (id == j) continue;
+            float a_dx = agents[id].x - agents[j].x;
+            float a_dy = agents[id].y - agents[j].y;
+            float dist = sqrtf(a_dx*a_dx + a_dy*a_dy);
+            if (dist < SENSING_RADIUS) agents[id].neighbor_count++;
+            if (dist < OCCLUSION_RADIUS) agents[id].occlusion_neighbor_count++;
+        }
+        agents[id].prev_neighbor_count = agents[id].neighbor_count;
     }
 }
 
