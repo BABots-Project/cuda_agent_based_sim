@@ -291,7 +291,7 @@ __global__ void updateAgentStateCollective(
 
             float height = model.height;  // new field in TransitionModel
             float val = height / (1.0f + expf(-z));
-            if(TASK=="aggregation"){
+            if(TASK=="aggregation-diff"){
                  const TransitionModel& model_b = d_transition_models_b[agent_state * N_STATES + i];
                     float z_b = model_b.coeff *  (float) agents[agent_id].neighbor_count + model_b.intercept;
                     float height_b = model_b.height;
