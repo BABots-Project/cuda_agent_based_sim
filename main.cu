@@ -48,6 +48,10 @@ int main(int argc, char* argv[]) {
             output_dir = argv[++i];
         else if (strcmp(argv[i], "--seed") == 0 && i+1 < argc)
             seed = atoi(argv[++i]);
+        else if (strcmp(argv[i], "--l1") == 0 && i+1 < argc)
+            exit_params_filename = argv[++i];
+        else if (strcmp(argv[i], "--l2") == 0 && i+1 < argc)
+            transition_params_filename = argv[++i];
     }
 
     // create output dir only if length is greater than 0 (i.e. if it was provided as an argument)
