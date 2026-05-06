@@ -3,8 +3,8 @@
 // Environmental variables
 #define OPTIMISING true
 #define N 256
-#define WIDTH 10.0f
-#define HEIGHT 10.0f
+#define WIDTH 60.0f
+#define HEIGHT 60.0f
 #define SEED 1233
 // Simulation parameters
 #define WORM_COUNT 1000
@@ -13,7 +13,7 @@
 #define DT 0.33f
 #define DEBUG false
 #define ENABLE_RANDOM_INITIAL_POSITIONS false
-#define TASK "aggregation"//"aggregation-diff"//"diffusion"//
+#define TASK "diffusion"//"aggregation"//"aggregation-diff"//
 #define INITIAL_AREA_NUMBER_OF_CELLS 10
 #define ENABLE_MAXIMUM_NUMBER_OF_AGENTS_PER_CELL false
 #define MAXIMUM_AGENTS_PER_CELL 40

@@ -29,9 +29,9 @@ void get_last_error() {
 
 int main(int argc, char* argv[]) {
     const char *extracted_params_filename = "/state_estimations/behavior_distributions_off_food.json";
-    const char *transition_params_filename = "/state_estimations/l2.json";
+    const char *transition_params_filename = "/state_estimations/l2_aggregation.json";
     const char *transition_b_params_filename = "/state_estimations/l2b.json";
-    const char *exit_params_filename = "/state_estimations/l1.json";
+    const char *exit_params_filename = "/state_estimations/l1_aggregation.json";
     const char* transition_factors_filename = "/state_estimations/transition_factors.json";
     const char* bias_filename = "/state_estimations/transition_angle_bias.json";
     const char* duration_lognormal_params_filename = "/state_estimations/duration_lognormal_params_all_conditions.json";
@@ -230,6 +230,7 @@ int main(int argc, char* argv[]) {
     /*if(LOG_GENERIC_TARGET_DATA) {
         saveAllDataToJSON(target_json, positions, velocities, angles, h_agents ,WORM_COUNT, N_STEPS, sub_states, dc, c, avg_neighbors);
     }*/
+
     saveOnlyAvgNeighbors(output_path, avg_neighbors);
     printf("Logging complete to %s\n", output_path);
 
