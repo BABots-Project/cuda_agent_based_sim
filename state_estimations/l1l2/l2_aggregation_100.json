@@ -1,0 +1,98 @@
+{
+  "0": {
+    "0": {
+      "p_off_food": 0.0,
+      "tau": -1,
+      "model_coeff": -1.6453759572614812,
+      "model_intercept": -18.35896844313035,
+      "mean": 0,
+      "std": 1,
+      "p_relevant": 0,
+      "sign": 1
+    },
+    "1": {
+      "p_off_food": 0.3951612903225806,
+      "tau": -1,
+      "model_coeff": 0.77412820036405,
+      "model_intercept": -12.925592385650368,
+      "mean": 0,
+      "std": 1,
+      "p_relevant": 0,
+      "sign": 1
+    },
+    "2": {
+      "p_off_food": 0.6048387096774194,
+      "tau": -1,
+      "model_coeff": 0.0643867241078544,
+      "model_intercept": -3.3049222815209873,
+      "mean": 0,
+      "std": 1,
+      "p_relevant": 0,
+      "sign": 1
+    }
+  },
+  "1": {
+    "0": {
+      "p_off_food": 0.06286836935166994,
+      "tau": -1,
+      "model_coeff": -2.3974336870032897,
+      "model_intercept": -13.0390650486874,
+      "mean": 0,
+      "std": 1,
+      "p_relevant": 0,
+      "sign": 1
+    },
+    "1": {
+      "p_off_food": 0.0,
+      "tau": -1,
+      "model_coeff": 3.488764683208041,
+      "model_intercept": -5.333240048825518,
+      "mean": 0,
+      "std": 1,
+      "p_relevant": 0,
+      "sign": 1
+    },
+    "2": {
+      "p_off_food": 0.93713163064833,
+      "tau": -1,
+      "model_coeff": -4.951022876446192,
+      "model_intercept": -8.691882807321319,
+      "mean": 0,
+      "std": 1,
+      "p_relevant": 0,
+      "sign": 1
+    }
+  },
+  "2": {
+    "0": {
+      "p_off_food": 0.16787003610108303,
+      "tau": -1,
+      "model_coeff": 3.085809381787616,
+      "model_intercept": -15.47369676609548,
+      "mean": 0,
+      "std": 1,
+      "p_relevant": 0,
+      "sign": 1
+    },
+    "1": {
+      "p_off_food": 0.8321299638989169,
+      "tau": -1,
+      "model_coeff": 3.601703432796315,
+      "model_intercept": -12.03795040601536,
+      "mean": 0,
+      "std": 1,
+      "p_relevant": 0,
+      "sign": 1
+    },
+    "2": {
+      "p_off_food": 0.0,
+      "tau": -1,
+      "model_coeff": -3.9136378865372103,
+      "model_intercept": -2.9785279313135042,
+      "mean": 0,
+      "std": 1,
+      "p_relevant": 0,
+      "sign": 1
+    }
+  }
+}

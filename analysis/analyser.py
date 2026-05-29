@@ -304,52 +304,28 @@ groups = np.repeat(np.arange(n_worms), len(states[0]))
 flat_durations = get_durations_continuous_flat(labels, groups)
 
 
-for g in np.unique(groups):
+speeds = data["velocities"]
+speeds = np.array(speeds).flatten()
+angles = data["angles"]
+angles = np.array(angles).flatten() #WRONG!!! NEED TO TAKE INTO ACCOUNT GROUP SPLIT
+angle_changes = calculate_angle_changes(angles)
+angle_changes = np.concatenate([[0], angle_changes])  # pad to same length as speeds and labels
+print(f"len speeds: {len(speeds)}, len angle_changes: {len(angle_changes)}, len labels: {len(labels)}")
+features = np.stack([speeds, angle_changes], axis=1)
+N_STATES = len(chemotaxis_transition_data)
+
+plot_feature_distributions_by_cluster(features, labels, feature_names=["speed", "angle_change"])
+
+'''for g in np.unique(groups):
     worm_durations = flat_durations[groups == g]
     worm_labels = labels[groups == g]
     run_durations = worm_durations[worm_labels == 2]
-    xs = list(range(len(run_durations)))
+    xs = list(range(len(run_durations)))'''
     #plt.plot(xs, run_durations)
     #plt.title(f"off-food worm {g} run durations over time")
     #plt.show()
 import sys
 #sys.exit()
-
-c = np.array(data["c"])
-
-# --- collect dc_int per (state, next_state)
-dc_at_transitions = defaultdict(list)
-distances_from_odor_final = []
-
-durations = defaultdict(list)
-for g in np.unique(groups):
-    g_idx = np.where(groups == g)[0]
-    idx = g_idx[g_idx < len(c)]
-
-    worm_c = c[idx]
-    worm_labels = labels[g_idx]
-    worm_durations = get_durations(worm_labels)
-    for state, dur_list in worm_durations.items():
-        durations[state].extend(dur_list)
-    worm_labels = labels[idx]
-    for t in range(len(worm_labels) - 1):
-        i = worm_labels[t]
-        j = worm_labels[t + 1]
-
-        tau = chemotaxis_transition_data[str(i)][str(j)]["tau"]
-        coeff = chemotaxis_transition_data[str(i)][str(j)]["model_coeff"]
-        intercept = chemotaxis_transition_data[str(i)][str(j)]["model_intercept"]
-
-        if coeff != -1 and intercept!=-1 and t >= tau:
-
-            if worm_c[t-tau].dtype != np.float64:
-                print("warning: missing c value at t-tau, skipping dc_int calculation for this transition")
-                print(f"worm {g}, transition {i} -> {j}, t={t}, tau={tau}")
-                print("worm_c[t-tau]: ", worm_c[t-tau])
-                import sys
-                sys.exit()
-            dc_int = worm_c[t] - worm_c[t - tau]
-            dc_at_transitions[(i, j)].append(dc_int)
 
 #plot durations
 for l in np.unique(labels):
@@ -367,85 +343,103 @@ for l in np.unique(labels):
     plt.grid(False)
     plt.show()
 
+if "c" in data.keys():
+    c = np.array(data["c"])
 
+    # --- collect dc_int per (state, next_state)
+    dc_at_transitions = defaultdict(list)
+    distances_from_odor_final = []
 
-# --- plotting range
-dc_min, dc_max = -0.003, 0.003
-x = np.linspace(dc_min, dc_max, 200)
+    durations = defaultdict(list)
+    for g in np.unique(groups):
+        g_idx = np.where(groups == g)[0]
+        idx = g_idx[g_idx < len(c)]
 
-N_STATES = len(chemotaxis_transition_data)
+        worm_c = c[idx]
+        worm_labels = labels[g_idx]
+        worm_durations = get_durations(worm_labels)
+        for state, dur_list in worm_durations.items():
+            durations[state].extend(dur_list)
+        worm_labels = labels[idx]
+        for t in range(len(worm_labels) - 1):
+            i = worm_labels[t]
+            j = worm_labels[t + 1]
 
+            tau = chemotaxis_transition_data[str(i)][str(j)]["tau"]
+            coeff = chemotaxis_transition_data[str(i)][str(j)]["model_coeff"]
+            intercept = chemotaxis_transition_data[str(i)][str(j)]["model_intercept"]
 
-speeds = data["velocities"]
-speeds = np.array(speeds).flatten()
-angles = data["angles"]
-angles = np.array(angles).flatten() #WRONG!!! NEED TO TAKE INTO ACCOUNT GROUP SPLIT
-angle_changes = calculate_angle_changes(angles)
-angle_changes = np.concatenate([[0], angle_changes])  # pad to same length as speeds and labels
-print(f"len speeds: {len(speeds)}, len angle_changes: {len(angle_changes)}, len labels: {len(labels)}")
-features = np.stack([speeds, angle_changes], axis=1)
+            if coeff != -1 and intercept!=-1 and t >= tau:
 
+                if worm_c[t-tau].dtype != np.float64:
+                    print("warning: missing c value at t-tau, skipping dc_int calculation for this transition")
+                    print(f"worm {g}, transition {i} -> {j}, t={t}, tau={tau}")
+                    print("worm_c[t-tau]: ", worm_c[t-tau])
+                    import sys
+                    sys.exit()
+                dc_int = worm_c[t] - worm_c[t - tau]
+                dc_at_transitions[(i, j)].append(dc_int)
 
-plot_feature_distributions_by_cluster(features, labels, feature_names=["speed", "angle_change"])
+    # --- plotting range
+    dc_min, dc_max = -0.003, 0.003
+    x = np.linspace(dc_min, dc_max, 200)
+    # --- group by source state
+    for i in range(N_STATES):
 
+        plt.figure()
 
-# --- group by source state
-for i in range(N_STATES):
+        # compute softmax curves for all target states j
+        Z = []
+        valid_js = []
 
-    plt.figure()
-
-    # compute softmax curves for all target states j
-    Z = []
-    valid_js = []
-
-    for j in range(N_STATES):
-        model = chemotaxis_transition_data[str(i)][str(j)]
-        tau = model["tau"]
-        coeff = model["model_coeff"]
-        intercept = model["model_intercept"]
-
-        if coeff == -1 and intercept == -1:
-            # fallback: treat as constant prob
-            z = model["p_off_food"] * np.ones_like(x)
-        else:
-            alpha = model["model_coeff"]
+        for j in range(N_STATES):
+            model = chemotaxis_transition_data[str(i)][str(j)]
+            tau = model["tau"]
+            coeff = model["model_coeff"]
             intercept = model["model_intercept"]
-            mean = model["mean"]
-            std = model["std"]
-            sign = model["sign"]
-            z = sign*( alpha * (x - mean) / std + intercept)
 
-        Z.append(z)
-        valid_js.append(j)
+            if coeff == -1 and intercept == -1:
+                # fallback: treat as constant prob
+                z = model["p_off_food"] * np.ones_like(x)
+            else:
+                alpha = model["model_coeff"]
+                intercept = model["model_intercept"]
+                mean = model["mean"]
+                std = model["std"]
+                sign = model["sign"]
+                z = sign*( alpha * (x - mean) / std + intercept)
 
-    Z = np.array(Z)  # shape (n_states, len(x))
+            Z.append(z)
+            valid_js.append(j)
 
-    # softmax
-    expZ = 1/( 1+ np.exp(-Z))
-    P = expZ / np.sum(expZ, axis=0, keepdims=True)
+        Z = np.array(Z)  # shape (n_states, len(x))
 
-    # --- plot curves
-    for idx_j, j in enumerate(valid_js):
-        plt.plot(x, P[idx_j], label=f"{i}→{j}")
+        # softmax
+        expZ = 1/( 1+ np.exp(-Z))
+        P = expZ / np.sum(expZ, axis=0, keepdims=True)
 
-    # --- overlay data (dc_int samples)
-    for j in range(N_STATES):
-        dc_vals = dc_at_transitions.get((i, j), [])
-        dc_vals = np.asarray(dc_vals).flatten()
-        if len(dc_vals) == 0:
-            continue
-        print("transition: ", f"{i}->{j}", np.min(dc_vals), np.max(dc_vals), np.std(dc_vals))
+        # --- plot curves
+        for idx_j, j in enumerate(valid_js):
+            plt.plot(x, P[idx_j], label=f"{i}→{j}")
 
-        # jitter vertically around zero for visibility
-        y_jitter = np.random.uniform(0, 0.05, size=len(dc_vals))
+        # --- overlay data (dc_int samples)
+        for j in range(N_STATES):
+            dc_vals = dc_at_transitions.get((i, j), [])
+            dc_vals = np.asarray(dc_vals).flatten()
+            if len(dc_vals) == 0:
+                continue
+            print("transition: ", f"{i}->{j}", np.min(dc_vals), np.max(dc_vals), np.std(dc_vals))
 
-        plt.scatter(dc_vals, y_jitter, alpha=0.3, s=10)
+            # jitter vertically around zero for visibility
+            y_jitter = np.random.uniform(0, 0.05, size=len(dc_vals))
 
-    plt.xlabel("dc_int")
-    plt.ylabel("P(i → j | dc_int)")
-    plt.title(f"Source state {i}")
-    plt.legend()
-    plt.show()
+            plt.scatter(dc_vals, y_jitter, alpha=0.3, s=10)
+
+        plt.xlabel("dc_int")
+        plt.ylabel("P(i → j | dc_int)")
+        plt.title(f"Source state {i}")
+        plt.legend()
+        plt.show()
 
 
 

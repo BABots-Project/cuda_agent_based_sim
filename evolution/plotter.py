@@ -25,13 +25,13 @@ STATE_LABELS = {0: "State 0", 1: "State 1", 2: "State 2"}
 
 # ─── Aesthetics ───────────────────────────────────────────────────────────────
 
-DARK_BG   = "#0e0e12"
-PANEL_BG  = "#16161e"
-GRID_COL  = "#2a2a3a"
-TEXT_COL  = "#e0e0f0"
-SUB_COL   = "#7070a0"
+DARK_BG   = "#ffffff"
+PANEL_BG  = "#ffffff"
+GRID_COL  = "#cccccc"
+TEXT_COL  = "#111111"
+SUB_COL   = "#444444"
 
-LOG_DIR   = "logs"
+LOG_DIR   = "server_results/logs"
 
 
 # Two behaviour palettes
@@ -41,23 +41,34 @@ PALETTE = {
     "server":     "#ff6b6b",   # vibrant red
 }
 
-STATE_COLORS = ["#c77dff", "#80ffdb", "#ff6b6b"]  # per state
+STATE_DISPLAY_LABELS = {
+    0: "Reversal",
+    1: "Turn",
+    2: "Run",
+}
+
+STATE_COLORS = ["#c77dff", "#2a7db5", "#ff6b6b"]  # S0: purple, S1: steel blue, S2: red
 
 plt.rcParams.update({
-    "font.family":      "monospace",
+    "font.family":      "serif",
+    "font.size":        18,
     "text.color":       TEXT_COL,
     "axes.labelcolor":  TEXT_COL,
-    "xtick.color":      SUB_COL,
-    "ytick.color":      SUB_COL,
+    "axes.labelsize":   18,
+    "axes.titlesize":   20,
+    "xtick.color":      TEXT_COL,
+    "ytick.color":      TEXT_COL,
+    "xtick.labelsize":  16,
+    "ytick.labelsize":  16,
     "axes.facecolor":   PANEL_BG,
-    "figure.facecolor": DARK_BG,
+    "figure.facecolor": PANEL_BG,
     "axes.edgecolor":   GRID_COL,
     "axes.grid":        True,
     "grid.color":       GRID_COL,
-    "grid.linewidth":   0.5,
+    "grid.linewidth":   0.8,
     "grid.alpha":       0.8,
+    "legend.fontsize":  14,
 })
-
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def logistic(N, coeff, intercept, height):
@@ -86,13 +97,13 @@ def get_l2_params(l2_data, src, dst):
     return entry["model_coeff"], entry["model_intercept"], entry["model_height"]
 
 
-def style_ax(ax, title):
+def style_ax(ax, title, ylabel=""):
     ax.set_facecolor(PANEL_BG)
-    ax.set_title(title, color=TEXT_COL, fontsize=8, pad=6, fontweight="bold")
-    ax.set_xlabel("N neighbors", fontsize=7, color=SUB_COL)
-    ax.set_ylabel("probability", fontsize=7, color=SUB_COL)
+    ax.set_title(title, color=TEXT_COL, fontsize=20, pad=6, fontweight="bold")
+    ax.set_xlabel(r"$\Delta n_p$", fontsize=18, color=TEXT_COL)
+    ax.set_ylabel(ylabel, fontsize=18, color=TEXT_COL)
     ax.set_ylim(-0.05, 1.05)
-    ax.tick_params(labelsize=6)
+    ax.tick_params(labelsize=16)
     for spine in ax.spines.values():
         spine.set_edgecolor(GRID_COL)
 
@@ -117,7 +128,7 @@ def main():
 
     ax.set_xlabel("timestep", color=TEXT_COL, fontsize=9)
     ax.set_ylabel("largest cluster / N", color=TEXT_COL, fontsize=9)
-    ax.set_title("Largest cluster fraction over time — AGGREGATION", color=TEXT_COL, fontsize=11)
+    ax.set_title("Largest cluster fraction over time — DIFFUSION", color=TEXT_COL, fontsize=11)
     ax.set_ylim(0, 1)
     ax.tick_params(colors=TEXT_COL, labelsize=7)
     ax.grid(color=GRID_COL, linewidth=0.5, alpha=0.8)
@@ -139,7 +150,7 @@ def main():
     plt.show()
 
 
-    behaviours = ["diffusion"]#"server"]#["aggregation", "diffusion"]
+    behaviours = ["aggregation"]#"server"]#["aggregation", "diffusion"]
     N = np.linspace(-20, 20, 300)
 
     data = {}
@@ -150,54 +161,46 @@ def main():
             print(f"[WARN] Missing file for {b}: {e}")
 
     for b, (l1_data, l2_data) in data.items():
-        fig = plt.figure(figsize=(14, 9))
-        fig.patch.set_facecolor(DARK_BG)
-        fig.suptitle(
-            f"PFSM Logistic Functions — {b.upper()}",
-            fontsize=13, color=TEXT_COL, fontweight="bold", y=0.98,
-        )
 
-        outer = gridspec.GridSpec(2, 1, figure=fig, hspace=0.45,
-                                  top=0.93, bottom=0.07, left=0.06, right=0.97)
-        l1_grid = gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec=outer[0], wspace=0.35)
-        l2_grid = gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec=outer[1], wspace=0.35)
-
-        # L1
+        # ── L1 subplots ───────────────────────────────────────────────────────
         for s_idx, state in enumerate(STATES):
-            if s_idx!=2:
+            if state != 2:
                 continue
-
-            ax = fig.add_subplot(l1_grid[s_idx])
-            style_ax(ax, f"L1 · Exit probability · {STATE_LABELS[state]}")
+            fig, ax = plt.subplots(figsize=(4, 3))
+            fig.patch.set_facecolor(PANEL_BG)
+            style_ax(ax, f"L1 · {STATE_DISPLAY_LABELS[state]}")
             coeff, intercept, height = get_l1_params(l1_data, state)
             ax.plot(N, logistic(N, coeff, intercept, height),
-                    color=PALETTE[b], linewidth=2.0)
-            ax.axhspan(0, 1, alpha=0.03, color=STATE_COLORS[s_idx])
+                    color=PALETTE[b], linewidth=2.5)
 
-        # L2
+            plt.tight_layout()
+            out = os.path.join(SCRIPT_DIR, f"{b}_l1_state{state}.pdf")
+            plt.savefig(out, bbox_inches="tight", facecolor=PANEL_BG, dpi=300)
+            print(f"Saved → {out}")
+            plt.close(fig)
+
+        # ── L2 subplots ───────────────────────────────────────────────────────
         for s_idx, src in enumerate(STATES):
-            ax = fig.add_subplot(l2_grid[s_idx])
-            style_ax(ax, f"L2 · Transition probability · from {STATE_LABELS[src]}")
+            fig, ax = plt.subplots(figsize=(4, 3))
+            fig.patch.set_facecolor(PANEL_BG)
+            style_ax(ax, f"L2 · from {STATE_DISPLAY_LABELS[src]}", ylabel="")
             for dst in STATES:
                 coeff, intercept, height = get_l2_params(l2_data, src, dst)
                 ax.plot(N, logistic(N, coeff, intercept, height),
                         color=STATE_COLORS[dst],
-                        linewidth=2.2 if src == dst else 1.4,
+                        linewidth=2.5,
                         linestyle="--" if src == dst else "-",
-                        label=f"→ S{dst}")
-            ax.axhspan(0, 1, alpha=0.03, color=STATE_COLORS[s_idx])
-            ax.legend(fontsize=6, loc="upper left", framealpha=0.3,
-                      facecolor=PANEL_BG, edgecolor=GRID_COL, labelcolor=TEXT_COL)
-
-        fig.text(0.01, 0.72, "L1", fontsize=16, color=SUB_COL,
-                 fontweight="bold", va="center", rotation=90)
-        fig.text(0.01, 0.28, "L2", fontsize=16, color=SUB_COL,
-                 fontweight="bold", va="center", rotation=90)
-
-        out_path = os.path.join(SCRIPT_DIR, f"logistic_functions_{b}.png")
-        plt.savefig(out_path, dpi=150, bbox_inches="tight", facecolor=DARK_BG)
-        print(f"Saved → {out_path}")
-        plt.show()
+                        #label=f"→ {STATE_DISPLAY_LABELS[dst]}  m={coeff:.2f} q={intercept:.2f} h={height:.2f}")
+                        label=f"→ {STATE_DISPLAY_LABELS[dst]}")
+            ax.legend(fontsize=9,  framealpha=0.3,
+                      facecolor=PANEL_BG, edgecolor=GRID_COL,
+                      labelcolor=TEXT_COL,
+                      prop={'family': 'monospace', 'size': 9})
+            plt.tight_layout()
+            out = os.path.join(SCRIPT_DIR, f"{b}_l2_from{src}.pdf")
+            plt.savefig(out, bbox_inches="tight", facecolor=PANEL_BG, dpi=300)
+            print(f"Saved → {out}")
+            plt.close(fig)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,32 @@
+{
+  "0": {
+    "p_off_food": 0.0,
+    "tau": -1,
+    "model_coeff": -3.372952795600908,
+    "model_intercept": -16.877959765885656,
+    "mean": 0,
+    "std": 1,
+    "p_relevant": 0,
+    "sign": 1
+  },
+  "1": {
+    "p_off_food": 0.0,
+    "tau": -1,
+    "model_coeff": -3.025644052138452,
+    "model_intercept": -17.083337843002614,
+    "mean": 0,
+    "std": 1,
+    "p_relevant": 0,
+    "sign": 1
+  },
+  "2": {
+    "p_off_food": 0.0,
+    "tau": -1,
+    "model_coeff": 0.2251144708594932,
+    "model_intercept": -8.905827121243068,
+    "mean": 0,
+    "std": 1,
+    "p_relevant": 0,
+    "sign": 1
+  }
+}

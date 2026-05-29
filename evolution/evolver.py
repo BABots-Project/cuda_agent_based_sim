@@ -17,6 +17,7 @@ import subprocess
 import os
 import numpy as np
 import cma
+import copy
 
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
@@ -221,6 +222,7 @@ def evaluate(x_norm: np.ndarray) -> dict:
         all_avg_n.append(avg_n)
         all_dist_com.append(float(dist_to_com.mean()))
         all_fractions.append(fractions)'''
+        all_avg_n.append(avg_n)
 
     # average metrics across ensemble
     #mean_fractions = np.mean(all_fractions, axis=0)  # (n_frames,)
@@ -409,19 +411,83 @@ def save_result(x_norm: np.ndarray, label: str):
         with open(dst, "w") as f:
             json.dump(data, f, indent=2)
     print(f"[{label}] Saved optimized JSONs with _{suffix} suffix.")
-def write_empty_l1l2():
-    """Write l1/l2 with all model params set to -1 (baseline/control)."""
+
+from itertools import combinations
+
+SWEEP_SINGLE = [
+    "baseline",
+    "l1_only",
+    "l2_s0_only",
+    "l2_s1_only",
+    "l2_s2_only",
+    "all",
+]
+
+SWEEP_PAIRWISE = [
+    "l1_l2_s0",
+    "l1_l2_s1",
+    "l1_l2_s2",
+    "l2_s0_l2_s1",
+    "l2_s0_l2_s2",
+    "l2_s1_l2_s2",
+]
+
+COMPONENTS = ["l1", "l2_s0", "l2_s1", "l2_s2"]
+
+def _blank_l1():
     l1 = {}
     for state in STATES:
         p_off_food = OFF_FOOD[str(state)][str(state)]
         l1[str(state)] = _neutral_entry(-1.0, -1.0, -1.0, p_off_food)
-    with open(L1_PATH, "w") as f:
-        json.dump(l1, f, indent=2)
+    return l1
 
+def _blank_l2():
     l2 = {str(s): {} for s in STATES}
     for src, dst in TRANSITIONS:
         p_off_food = OFF_FOOD[str(src)][str(dst)]
         l2[str(src)][str(dst)] = _neutral_entry(-1.0, -1.0, -1.0, p_off_food)
+    return l2
+
+def write_empty_l1l2():
+    with open(L1_PATH, "w") as f:
+        json.dump(_blank_l1(), f, indent=2)
+    with open(L2_PATH, "w") as f:
+        json.dump(_blank_l2(), f, indent=2)
+
+def write_subset_l1l2(active_csv: str, suffix: str):
+    """
+    active_csv examples:
+      "l1"
+      "l2_s0"
+      "l1,l2_s0"
+      "l1,l2_s0,l2_s1"
+      "l2_s0,l2_s1,l2_s2"
+      "l1,l2_s0,l2_s1,l2_s2"
+    """
+    active = {x.strip() for x in active_csv.split(",") if x.strip()}
+
+    with open(os.path.join(STATE_EST_DIR, f"l1_{suffix}.json")) as f:
+        l1_opt = json.load(f)
+    with open(os.path.join(STATE_EST_DIR, f"l2_{suffix}.json")) as f:
+        l2_opt = json.load(f)
+
+    l1 = _blank_l1()
+    l2 = _blank_l2()
+
+    if "l1" in active:
+        for state, entry in l1_opt.items():
+            l1[state] = copy.deepcopy(entry)
+
+    for src in STATES:
+        token = f"l2_s{src}"
+        if token in active:
+            for dst, entry in l2_opt[str(src)].items():
+                if dst == str(src):
+                    continue
+                l2[str(src)][dst] = copy.deepcopy(entry)
+
+    with open(L1_PATH, "w") as f:
+        json.dump(l1, f, indent=2)
     with open(L2_PATH, "w") as f:
         json.dump(l2, f, indent=2)
 
