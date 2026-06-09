@@ -11,6 +11,42 @@
 #include "../include/json.hpp"
 using json = nlohmann::json;
 
+struct ChemotaxisParams{
+	float p1_minus, a1, p_run_rev_minus, p_rev_run_minus, p_turn_run_minus, a_run_rev, a_rev_run, a_turn_run;
+ };
+
+ struct ChemotaxisParamsHost{
+	float p1_minus, a1, p_run_rev_minus, p_rev_run_minus, p_turn_run_minus, a_run_rev, a_rev_run, a_turn_run;
+ };
+
+ //load chemotaxis params from JSON file
+static void load_chemotaxis_params(const char* path, ChemotaxisParamsHost* host_params){
+    std::ifstream f(path);
+    if (!f) throw std::runtime_error(std::string("Cannot open ") + path);
+    json j = json::parse(f);
+    host_params->p1_minus = j["p1_minus"].get<float>();
+    host_params->a1 = j["a1"].get<float>();
+    host_params->p_run_rev_minus = j["p_run_rev_minus"].get<float>();
+    host_params->p_rev_run_minus = j["p_rev_run_minus"].get<float>();
+    host_params->p_turn_run_minus = j["p_turn_run_minus"].get<float>();
+    host_params->a_run_rev = j["a_run_rev"].get<float>();
+    host_params->a_rev_run = j["a_rev_run"].get<float>();
+    host_params->a_turn_run = j["a_turn_run"].get<float>();
+}
+
+__constant__ ChemotaxisParams chemotaxis_params_d;
+//upload to device
+void upload_chemotaxis_params(const ChemotaxisParamsHost* host_params) {
+    cudaError_t err = cudaMemcpyToSymbol(
+        chemotaxis_params_d,
+        host_params,
+        sizeof(ChemotaxisParams)
+    );
+    if (err != cudaSuccess)
+        throw std::runtime_error(cudaGetErrorString(err));
+}
+
+
 struct JointTable {
     int    n;         // number of observations
     float* obs;       // device ptr: interleaved [speed0, angle0, speed1, angle1, ...]
@@ -281,7 +317,7 @@ __constant__ TransitionModel d_transition_models[N_STATES*N_STATES], d_transitio
 __constant__ TransitionModel d_exit_models[N_STATES];
 __constant__ float odor_x0;
 __constant__ float odor_y0;
-float h_odor_x0 = WIDTH/2.0f;
+float h_odor_x0 = 3.0f*WIDTH/4.0f;
 float h_odor_y0 = HEIGHT/2.0f;
 __constant__ float frequencies[N_STATES];
 __constant__ TransitionFactor d_transition_factors[N_STATES*N_STATES];
@@ -289,6 +325,31 @@ __constant__ TransitionBias d_transition_biases[N_STATES*N_STATES];
 __constant__ DurationLognormal d_duration_lognormals[N_STATES];
 __constant__ PRoam d_proam;
 __constant__ DurationLognormal d_roaming_lognormal;
+__constant__ float d_transition_chemotaxis[2][N_STATES * N_STATES];
+
+void upload_chemotaxis_transition_rates(float* h_trans) {
+    cudaMemcpyToSymbol(d_transition_chemotaxis, h_trans,
+                       sizeof(float) * 2 * N_STATES * N_STATES);
+}
+
+void load_chemotaxis_transition_rates(const char* path, float* h_trans) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        printf("Could not open %s\n", path);
+        exit(1);
+    }
+    json data = json::parse(file);
+    const int layer_size = N_STATES * N_STATES;
+    for (int i = 0; i < N_STATES; ++i) {
+        for (int j = 0; j < N_STATES; ++j) {
+            int idx = i * N_STATES + j;
+            h_trans[0 * layer_size + idx] = data["dC_pos"][i][j].get<float>();
+            h_trans[1 * layer_size + idx] = data["dC_neg"][i][j].get<float>();
+        }
+    }
+}
+
+
 
 struct PRoamHost{
   float p_roam;
@@ -385,6 +446,8 @@ struct Agent {
     int neighbor_count;
     int prev_neighbor_count, delta_neighbor_count;
     int occlusion_neighbor_count;
+    int dc_observations;
+    float dc[MAX_DC_OBSERVATIONS];
 };
 
 struct TransitionFactorHost{
@@ -861,11 +924,20 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
             	//agents[id].y = HEIGHT / 2 + sin(2.0f * M_PI * curand_uniform(&states[id])) * 15.0f;
                 agents[id].x = curand_uniform(&states[id]) * WIDTH;
                 agents[id].y = curand_uniform(&states[id]) * HEIGHT;
-			}
+			} else if(TASK=="chemotaxis"){
+
+                agents[id].x = 38.33f;
+                agents[id].y = 25.98f;
+
+                float min_y=12.0f, max_y=54.0f, min_x=16.0f, max_x=48.0f;
+                agents[id].x = min_x + curand_uniform(&states[id]) * (max_x - min_x);
+                agents[id].y = min_y + curand_uniform(&states[id]) * (max_y - min_y);
+            }
+
 
         }
         //generate angle in the range [-pi, pi]
-        agents[id].angle =(2.0f * curand_uniform(&states[id]) - 1.0f) * M_PI;
+        agents[id].angle =0.77f;//(2.0f * curand_uniform(&states[id]) - 1.0f) * M_PI;
         agents[id].speed = 0.0f;
         agents[id].angle_change = 0.0f;
         agents[id].previous_angle = agents[id].angle;
@@ -880,14 +952,14 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
         agents[id].run_omega = 0.0f;
         agents[id].run_amp = 0.0f;
         agents[id].kappa =3.0f;// 2.0f + 5.0f * curand_uniform(&states[id]);
-        if(agent_id>=37){
+        if(agent_id>=37 && agent_id<47){
             agents[id].run_omega = 3.0f * M_PI / d_agent_periods[agent_id - 37];
             agents[id].run_amp = d_agent_amplitudes[agent_id - 37];
             agents[id].kappa = d_agent_kappas[agent_id - 37];
         }
 
         float generated_value = curand_uniform(&states[id]);
-        agents[id].state = static_cast<int>(generated_value*(N_STATES));
+        agents[id].state = 2;// static_cast<int>(generated_value*(N_STATES));
         agents[id].previous_state = agents[id].state;
         //fill up dc_int with 0s
         for(int i=0; i<100; i++){
@@ -911,6 +983,10 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
             if (dist < OCCLUSION_RADIUS) agents[id].occlusion_neighbor_count++;
         }
         agents[id].prev_neighbor_count = agents[id].neighbor_count;
+        agents[id].dc_observations = 0;
+        for(int i=0; i<MAX_DC_OBSERVATIONS; i++){
+            agents[id].dc[i] = 0.0f;
+        }
     }
 }
 

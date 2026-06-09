@@ -3,17 +3,17 @@
 // Environmental variables
 #define OPTIMISING true
 #define N 256
-#define WIDTH 10.0f
-#define HEIGHT 10.0f
+#define WIDTH 60.0f
+#define HEIGHT 60.0f
 #define SEED 1233
 // Simulation parameters
-#define WORM_COUNT 1000
-#define N_STEPS 1800
+#define WORM_COUNT 500
+#define N_STEPS 1900
 #define LOGGING_INTERVAL 1
 #define DT 0.33f
 #define DEBUG false
 #define ENABLE_RANDOM_INITIAL_POSITIONS false
-#define TASK "aggregation"// "aggregation"//"aggregation-diff"//
+#define TASK "chemotaxis"// "aggregation"//"aggregation-diff"//
 #define INITIAL_AREA_NUMBER_OF_CELLS 10
 #define ENABLE_MAXIMUM_NUMBER_OF_AGENTS_PER_CELL false
 #define MAXIMUM_AGENTS_PER_CELL 40
@@ -29,11 +29,10 @@
 #define LOG_BACTERIAL_LAWN true
 #define LOG_STATES true
 #define LOG_DC false
-#define LOG_C false
+#define LOG_C true
 #define OCCLUSION_RADIUS 0.2f
 #define SENSING_RADIUS 0.5f
-
-
+#define MAX_DC_OBSERVATIONS 30 //memory of agent dC during chemotaxis
 
 // Agent parameters
 #define N_STATES 3
@@ -80,7 +79,7 @@ int h_STATE_MAX_DURATIONS[N_STATES] = {10, 6, 1000};
 #define SIGMA_X 10.0f   // Standard deviation in x direction
 #define SIGMA_Y 10.0f   // Standard deviation in y direction
 #define TARGET_AREA_SIDE_LENGTH 40
-#define MAX_CONCENTRATION 0.0f
+#define MAX_CONCENTRATION 0.01f
 #define GAMMA 0.0001f
 #define DIFFUSION_CONSTANT 2.52e-2f //
 #define ATTRACTION_STRENGTH 0.0282f
