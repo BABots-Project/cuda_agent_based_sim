@@ -584,9 +584,9 @@ __global__ void updateAgentState(
                     break;
             }
         }
-        transition_matrix_chemotaxis = d_transition_chemotaxis[0];
+        //transition_matrix_chemotaxis = d_transition_chemotaxis[0];
     } else if(dc<0) {
-        transition_matrix_chemotaxis = d_transition_chemotaxis[1];
+        //transition_matrix_chemotaxis = d_transition_chemotaxis[1];
         float rng = curand_uniform(&local_rng);
         if(rng>chemotaxis_params_d.p1_minus && agents[agent_id].state==2) leave=true;
         switch(agents[agent_id].state){

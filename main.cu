@@ -154,8 +154,8 @@ int main(int argc, char* argv[]) {
     load_transition_factors(h_transition_factors, transition_factors_filename);
     printf("Uploading transition factors to device...\n");
     upload_transition_factors(h_transition_factors);
-    load_chemotaxis_transition_rates(chemotaxis_worm_transitions_filename, h_transition_chemotaxis);
-    upload_chemotaxis_transition_rates(h_transition_chemotaxis);
+    //load_chemotaxis_transition_rates(chemotaxis_worm_transitions_filename, h_transition_chemotaxis);
+    //upload_chemotaxis_transition_rates(h_transition_chemotaxis);
     load_chemotaxis_params(chemotaxis_params_filename, &h_chemotaxis_params);
     upload_chemotaxis_params(&h_chemotaxis_params);
     /*printf("Loading bias data from file...\n");
