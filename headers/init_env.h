@@ -932,6 +932,9 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
                 float min_y=12.0f, max_y=54.0f, min_x=16.0f, max_x=48.0f;
                 agents[id].x = min_x + curand_uniform(&states[id]) * (max_x - min_x);
                 agents[id].y = min_y + curand_uniform(&states[id]) * (max_y - min_y);
+                //for optimisation purposes: set to avg x,y
+                agents[id].x = 33.59f;
+                agents[id].y = 29.25f;
             }
 
 

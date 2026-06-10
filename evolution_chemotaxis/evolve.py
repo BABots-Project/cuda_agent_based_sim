@@ -46,8 +46,8 @@ N_SEEDS = 1
 SIM_TIMEOUT = 300
 
 # Differential Evolution settings
-DE_POPSIZE   = 8     # population = popsize * n_params
-DE_MAXITER   = 100
+DE_POPSIZE   = 5     # population = popsize * n_params
+DE_MAXITER   = 150
 DE_TOL       = 1e-4
 DE_MUTATION  = (0.5, 1.0)
 DE_RECOMB    = 0.7
@@ -55,8 +55,8 @@ DE_WORKERS   = 1     # set to -1 to use all CPU cores (each worker runs N_SEEDS 
 DE_SEED      = 42
 
 # Weight of "before hit" vs "after hit" Wasserstein distances in the total loss
-W_BEFORE = 0.5
-W_AFTER  = 0.5
+W_BEFORE = 1.0
+W_AFTER  = 0.0
 
 # Odor hit distance threshold (mm)
 HIT_DIST_MM = 5.0

@@ -384,14 +384,14 @@ __global__ void moveAgents(Agent* agents, curandState* local_state, int worm_cou
 						//float periods[2] = {10.0f, 28.0f};
                        	//float amplitudes[2] = {0.4611468230085233f, 0.2889931168760453f};
                         //float u = curand_uniform(&local_rng);
-
+                        sampled_period = 8.0f; //median of chemotaxis data
         				agents[agent_id].run_omega = 2.0f * 3.14159265f / sampled_period; //
 
         				float zA = curand_normal(&local_rng);
         				float a = mu_score_chemotaxis + std_score_chemotaxis * zA;//
         				if (a < min_score_chemotaxis) a = min_score_chemotaxis;
         				if (a > max_score_chemotaxis) a = max_score_chemotaxis;
-        				agents[agent_id].run_amp = a;
+        				agents[agent_id].run_amp = 0.63f; //median of chemotaxis data
 					}
         		agents[agent_id].phi = 0.0f;//sample_von_mises(&local_rng, 1.5f);// sample_von_mises(&local_rng, agents[agent_id].kappa);//2.0f * 3.14159265f * curand_uniform(&local_rng);
     		}
@@ -401,7 +401,7 @@ __global__ void moveAgents(Agent* agents, curandState* local_state, int worm_cou
     		agents[agent_id].phi += agents[agent_id].run_omega;// + sigma_phi * curand_normal(&local_rng);
 
     // mean-zero angle noise widens the distribution around 0
-    		float sigma_theta = sample_von_mises(&local_rng, 6.52f);// agents[agent_id].kappa); // tune from residuals of real data
+    		float sigma_theta = sample_von_mises(&local_rng, 3.0f);// agents[agent_id].kappa); // tune from residuals of real data
     		//do not exceed [-1.5, 1.5]
             /*while(fabsf(sigma_theta)>1.0f){
                 sigma_theta = sample_von_mises(&local_rng, agents[agent_id].kappa);
