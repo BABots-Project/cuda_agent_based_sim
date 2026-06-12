@@ -214,7 +214,7 @@ def main():
     log.info("Raw results saved to %s", results_path)
 
     # plot
-    fig, ax = plt.subplots(figsize=(6, 5))
+    '''fig, ax = plt.subplots(figsize=(6, 5))
     im = ax.imshow(
         grid,
         origin="lower",
@@ -247,7 +247,7 @@ def main():
         plt.savefig(args.out, dpi=150)
         log.info("Heatmap saved to %s", args.out)
     else:
-        plt.show()
+        plt.show()'''
 
 
 if __name__ == "__main__":
