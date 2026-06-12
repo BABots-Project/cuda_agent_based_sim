@@ -1,0 +1,16 @@
+{
+  "p1_minus": 0.24699125242443848,
+  "a1": 0.3045226993793369,
+  "p_run_rev_minus": 0.5878576636846718,
+  "p_run_turn_minus" : 0.5,
+  "p_rev_run_minus": 0.5390861921044875,
+  "p_rev_turn_minus": 0.5,
+  "p_turn_run_minus": 0.3139107776571001,
+  "p_turn_rev_minus" : 0.5,
+  "a_run_rev": 0.2410485591972853,
+  "a_run_turn" : 0.1,
+  "a_rev_run": 0.5422182324571516,
+  "a_rev_turn": 0.1,
+  "a_turn_run": 0.45589235436573516,
+  "a_turn_rev" : 0.1
+}
