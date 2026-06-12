@@ -570,17 +570,17 @@ __global__ void updateAgentState(
                 case 0:
                     p[2] = chemotaxis_params_d.a_rev_run * p_value;
                     p[1] = chemotaxis_params_d.a_rev_turn * p_value;
-                    p[0] = 1.0f - p[1] - p[2];
+                    p[0] = fmaxf(0.0f, 1.0f - p[1] - p[2]);
                     break;
                 case 1:
                     p[2] = chemotaxis_params_d.a_turn_run * p_value;
                     p[0] = chemotaxis_params_d.a_turn_rev * p_value;
-                    p[1] = 1.0f - p[0] - p[2];
+                    p[1] = fmaxf(0.0f, 1.0f - p[0] - p[2]);
                     break;
                 case 2:
                     p[0] = chemotaxis_params_d.a_run_rev * p_value;
                     p[1] = chemotaxis_params_d.a_run_turn * p_value;
-                    p[2] = 1.0f - p[0] - p[1];
+                    p[2] = fmaxf(0.0f, 1.0f - p[0] - p[1]);
                     break;
             }
         }
@@ -594,20 +594,20 @@ __global__ void updateAgentState(
           case 0:
                 p[2] = chemotaxis_params_d.p_rev_run_minus;
                 p[1] = chemotaxis_params_d.p_rev_turn_minus;
-                p[0] = 1.0f - p[1] - p[2];
+                p[0] = fmaxf(0.0f, 1.0f - p[1] - p[2]);
                 break;
               case 1:
                 p[2] = chemotaxis_params_d.p_turn_run_minus;
                 p[0] = chemotaxis_params_d.p_turn_rev_minus;
-                p[1] = 1.0f - p[0] - p[2];
+                p[1] = fmaxf(0.0f, 1.0f - p[0] - p[2]);
                 break;
               case 2:
                 p[0] = chemotaxis_params_d.p_run_rev_minus;
                 p[1] = chemotaxis_params_d.p_run_turn_minus;
-                p[2] = 1.0f - p[0] - p[1];
+                p[2] = fmaxf(0.0f, 1.0f - p[0] - p[1]);
                 break;
         }
-        p_sum = -1.0f; //set to negative; normalization is already ensured by construction
+        p_sum = p[0]+p[1]+p[2];
     }
 
     //float p[N_STATES];
