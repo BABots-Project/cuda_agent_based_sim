@@ -538,16 +538,16 @@ __global__ void updateAgentState(
       agents[agent_id].state_duration -= 1;
         //return; //don't update state if duration not over ->
       // for chemotaxis, duration is just a dummy; allowing self-transitions
-    } else{
+    } /*else{
         leave = true;
-    }
+    }*/ //
 
     curandState local_rng = rng_states[agent_id];
 
     int agent_state = agents[agent_id].state;
     float dc = agents[agent_id].c[0] - agents[agent_id].c[1]; //current - previous
     float* transition_matrix_chemotaxis;
-    float default_chemotaxis_transition_matrix[9] = {0.0f, 0.32f, 0.68f, 0.04, 0.0f, 0.96f, 0.23f, 0.77f, 0.0f};
+    float default_chemotaxis_transition_matrix[9] = {0.68f, 0.10f, 0.22f, 0.03f, 0.27f, 0.7f, 0.01f, 0.02f, 0.98f};
     float p[N_STATES];
     float p_sum = 0.0f;
 
@@ -569,21 +569,22 @@ __global__ void updateAgentState(
             switch (agents[agent_id].state) {
                 case 0:
                     p[2] = chemotaxis_params_d.a_rev_run * p_value;
-                    p[1] = 1.0f - p[2];
-                    p[0] = 0.0f;
+                    p[1] = chemotaxis_params_d.a_rev_turn * p_value;
+                    p[0] = 1.0f - p[1] - p[2];
                     break;
                 case 1:
                     p[2] = chemotaxis_params_d.a_turn_run * p_value;
-                    p[1] = 1.0f - p[2];
-                    p[1] = 0.0f;
+                    p[0] = chemotaxis_params_d.a_turn_rev * p_value;
+                    p[1] = 1.0f - p[0] - p[2];
                     break;
                 case 2:
                     p[0] = chemotaxis_params_d.a_run_rev * p_value;
-                    p[1] = 1.0f - p[0];
-                    p[2] = 0.0f;
+                    p[1] = chemotaxis_params_d.a_run_turn * p_value;
+                    p[2] = 1.0f - p[0] - p[1];
                     break;
             }
         }
+        p_sum = p[0]+p[1]+p[2];
         //transition_matrix_chemotaxis = d_transition_chemotaxis[0];
     } else if(dc<0) {
         //transition_matrix_chemotaxis = d_transition_chemotaxis[1];
@@ -592,18 +593,21 @@ __global__ void updateAgentState(
         switch(agents[agent_id].state){
           case 0:
                 p[2] = chemotaxis_params_d.p_rev_run_minus;
-                p[1] = 1.0f - p[2];
+                p[1] = chemotaxis_params_d.p_rev_turn_minus;
+                p[0] = 1.0f - p[1] - p[2];
                 break;
               case 1:
                 p[2] = chemotaxis_params_d.p_turn_run_minus;
-                p[1] = 1.0f - p[2];
+                p[0] = chemotaxis_params_d.p_turn_rev_minus;
+                p[1] = 1.0f - p[0] - p[2];
                 break;
               case 2:
                 p[0] = chemotaxis_params_d.p_run_rev_minus;
-                p[1] = 1.0f - p[0];
+                p[1] = chemotaxis_params_d.p_run_turn_minus;
+                p[2] = 1.0f - p[0] - p[1];
                 break;
         }
-
+        p_sum = -1.0f; //set to negative; normalization is already ensured by construction
     }
 
     //float p[N_STATES];
@@ -617,11 +621,6 @@ __global__ void updateAgentState(
 	if(p_sum>0.0f){
         for (int i = 0; i < N_STATES; i++){
             p[i] /= p_sum;
-        }
-    } else {
-        //fallback to uniform if all zero
-        for (int i = 0; i < N_STATES; i++){
-            p[i] = 1.0f / (float)N_STATES;
         }
     }
     //transition condition: L1 or state duration expiration

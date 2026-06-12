@@ -12,11 +12,23 @@
 using json = nlohmann::json;
 
 struct ChemotaxisParams{
-	float p1_minus, a1, p_run_rev_minus, p_rev_run_minus, p_turn_run_minus, a_run_rev, a_rev_run, a_turn_run;
+    float p1_minus, a1;
+    float p_run_rev_minus, p_run_turn_minus;
+    float p_rev_run_minus, p_rev_turn_minus;
+    float p_turn_run_minus, p_turn_rev_minus;
+    float a_run_rev, a_run_turn;
+    float a_rev_run, a_rev_turn;
+    float a_turn_run, a_turn_rev;
  };
 
  struct ChemotaxisParamsHost{
-	float p1_minus, a1, p_run_rev_minus, p_rev_run_minus, p_turn_run_minus, a_run_rev, a_rev_run, a_turn_run;
+	float p1_minus, a1;
+    float p_run_rev_minus, p_run_turn_minus;
+    float p_rev_run_minus, p_rev_turn_minus;
+    float p_turn_run_minus, p_turn_rev_minus;
+    float a_run_rev, a_run_turn;
+    float a_rev_run, a_rev_turn;
+    float a_turn_run, a_turn_rev;
  };
 
  //load chemotaxis params from JSON file
@@ -27,11 +39,16 @@ static void load_chemotaxis_params(const char* path, ChemotaxisParamsHost* host_
     host_params->p1_minus = j["p1_minus"].get<float>();
     host_params->a1 = j["a1"].get<float>();
     host_params->p_run_rev_minus = j["p_run_rev_minus"].get<float>();
+    host_params->p_run_turn_minus = j["p_run_turn_minus"].get<float>();
     host_params->p_rev_run_minus = j["p_rev_run_minus"].get<float>();
+    host_params->p_turn_rev_minus = j["p_turn_rev_minus"].get<float>();
     host_params->p_turn_run_minus = j["p_turn_run_minus"].get<float>();
     host_params->a_run_rev = j["a_run_rev"].get<float>();
+    host_params->a_run_turn = j["a_run_turn"].get<float>();
     host_params->a_rev_run = j["a_rev_run"].get<float>();
+    host_params->a_rev_turn = j["a_rev_turn"].get<float>();
     host_params->a_turn_run = j["a_turn_run"].get<float>();
+    host_params->a_turn_rev = j["a_turn_rev"].get<float>();
 }
 
 __constant__ ChemotaxisParams chemotaxis_params_d;
