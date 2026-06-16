@@ -563,17 +563,14 @@ __global__ void updateAgentState(
         int n_obs = agents[agent_id].dc_observations;
         if(n_obs > 3) {
             float p_value = ztest(agents[agent_id].dc, n_obs-1, dc);
-            p_leave = chemotaxis_params_d.a1 * p_value;
-            float u = curand_uniform(&local_rng);
-            if (u > p_leave && agents[agent_id].state == 2) leave = true;
             switch (agents[agent_id].state) {
                 case 0:
-                    p[2] = chemotaxis_params_d.a_rev_run * p_value;
+                    p[2] = chemotaxis_params_d.a_rev_run * (1.0f - p_value);
                     p[1] = chemotaxis_params_d.a_rev_turn * p_value;
                     p[0] = fmaxf(0.0f, 1.0f - p[1] - p[2]);
                     break;
                 case 1:
-                    p[2] = chemotaxis_params_d.a_turn_run * p_value;
+                    p[2] = chemotaxis_params_d.a_turn_run * (1.0f-p_value);
                     p[0] = chemotaxis_params_d.a_turn_rev * p_value;
                     p[1] = fmaxf(0.0f, 1.0f - p[0] - p[2]);
                     break;
@@ -585,11 +582,7 @@ __global__ void updateAgentState(
             }
         }
         p_sum = p[0]+p[1]+p[2];
-        //transition_matrix_chemotaxis = d_transition_chemotaxis[0];
     } else if(dc<0) {
-        //transition_matrix_chemotaxis = d_transition_chemotaxis[1];
-        float rng = curand_uniform(&local_rng);
-        if(rng>chemotaxis_params_d.p1_minus && agents[agent_id].state==2) leave=true;
         switch(agents[agent_id].state){
           case 0:
                 p[2] = chemotaxis_params_d.p_rev_run_minus;
@@ -610,21 +603,13 @@ __global__ void updateAgentState(
         p_sum = p[0]+p[1]+p[2];
     }
 
-    //float p[N_STATES];
-    //rewrite for d_transition_chemotaxis: 0: positive dC, 1: negative dC
-	//float p_sum = 0.0f;
-	/*for (int i = 0; i < N_STATES; i++){
-          p[i] = transition_matrix_chemotaxis[agent_state * N_STATES + i];
-          p_sum += p[i];
-        }*/
-
 	if(p_sum>0.0f){
         for (int i = 0; i < N_STATES; i++){
             p[i] /= p_sum;
         }
     }
     //transition condition: L1 or state duration expiration
-    if(leave){
+    //if(leave){
     	int next_state = select_next_state(p, &local_rng, N_STATES);
 
     	if (next_state < 0 || next_state >= N_STATES) {
@@ -659,7 +644,7 @@ __global__ void updateAgentState(
 
 
 		agents[agent_id].initial_state_duration = agents[agent_id].state_duration;
-	}
+	//}
     rng_states[agent_id] = local_rng;
 }
 

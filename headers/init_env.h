@@ -12,7 +12,6 @@
 using json = nlohmann::json;
 
 struct ChemotaxisParams{
-    float p1_minus, a1;
     float p_run_rev_minus, p_run_turn_minus;
     float p_rev_run_minus, p_rev_turn_minus;
     float p_turn_run_minus, p_turn_rev_minus;
@@ -22,7 +21,6 @@ struct ChemotaxisParams{
  };
 
  struct ChemotaxisParamsHost{
-	float p1_minus, a1;
     float p_run_rev_minus, p_run_turn_minus;
     float p_rev_run_minus, p_rev_turn_minus;
     float p_turn_run_minus, p_turn_rev_minus;
@@ -36,8 +34,6 @@ static void load_chemotaxis_params(const char* path, ChemotaxisParamsHost* host_
     std::ifstream f(path);
     if (!f) throw std::runtime_error(std::string("Cannot open ") + path);
     json j = json::parse(f);
-    host_params->p1_minus = j["p1_minus"].get<float>();
-    host_params->a1 = j["a1"].get<float>();
     host_params->p_run_rev_minus = j["p_run_rev_minus"].get<float>();
     host_params->p_run_turn_minus = j["p_run_turn_minus"].get<float>();
     host_params->p_rev_run_minus = j["p_rev_run_minus"].get<float>();

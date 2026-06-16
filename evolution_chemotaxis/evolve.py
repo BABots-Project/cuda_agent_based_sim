@@ -55,8 +55,8 @@ DE_WORKERS   = 1     # set to -1 to use all CPU cores (each worker runs N_SEEDS 
 DE_SEED      = 42
 
 # Weight of "before hit" vs "after hit" Wasserstein distances in the total loss
-W_BEFORE = 1.0
-W_AFTER  = 0.0
+W_BEFORE = 0.5
+W_AFTER  = 0.5
 
 # Odor hit distance threshold (mm)
 HIT_DIST_MM = 5.0
@@ -68,14 +68,18 @@ DT      = 1 / 3
 # ── parameter layout ──────────────────────────────────────────────────────────
 
 PARAM_NAMES = [
-    "p1_minus",
-    "a1",
     "p_run_rev_minus",
+    "p_run_turn_minus",
     "p_rev_run_minus",
+    "p_rev_turn_minus",
     "p_turn_run_minus",
+    "p_turn_rev_minus",
     "a_run_rev",
+    "a_run_turn",
     "a_rev_run",
+    "a_rev_turn",
     "a_turn_run",
+    "a_turn_rev",
 ]
 
 # All parameters are probabilities in [0, 1]
@@ -295,6 +299,21 @@ def parse_args():
                    help="Where to save the best parameters found")
     return p.parse_args()
 
+def build_init_population(x0, popsize, n_params, bounds, spread=0.1):
+    """x0: your hand-found values (in PARAM_NAMES order). Returns init population array."""
+    pop_size = popsize * n_params
+    population = np.random.uniform(
+        low=[b[0] for b in bounds],
+        high=[b[1] for b in bounds],
+        size=(pop_size, n_params),
+    )
+    # perturb individuals around x0 so the optimizer starts near your known-good point
+    population[0] = x0
+    for i in range(1, pop_size // 2):
+        noise = np.random.normal(0, spread, size=n_params)
+        population[i] = np.clip(x0 + noise, [b[0] for b in bounds], [b[1] for b in bounds])
+    return population
+
 
 def main():
     args = parse_args()
@@ -321,15 +340,32 @@ def main():
             log.info("★ New best saved → %s (fitness=%.4f)", args.output, score)
         return score
 
+    x0 = np.array([
+        0.4878576636846718,
+        0.4,
+        0.2,
+        0.6,
+        0.2,
+        0.4,
+        0.1,
+        0.1,
+        0.8,
+        0.1,
+        0.8,
+        0.1
+    ])
+
     # 3. Run Differential Evolution
     log.info("Starting Differential Evolution  popsize=%d  maxiter=%d  workers=%d",
              args.popsize, args.maxiter, args.workers)
     t0 = time.time()
 
+    init_pop = build_init_population(x0, args.popsize, len(PARAM_NAMES), BOUNDS)
+
     result = differential_evolution(
         objective,
         bounds=BOUNDS,
-        popsize=args.popsize,
+        init=init_pop,        # <-- replaces popsize-driven default init
         maxiter=args.maxiter,
         tol=DE_TOL,
         mutation=DE_MUTATION,
@@ -337,7 +373,7 @@ def main():
         seed=DE_SEED,
         workers=args.workers,
         callback=de_callback,
-        polish=True,          # L-BFGS-B polish on the winner
+        polish=True,
         disp=True,
     )
 
