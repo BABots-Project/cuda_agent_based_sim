@@ -181,7 +181,10 @@ def write_params(params_dict: dict, path: str = PARAMS_JSON) -> None:
     with open(path, "w") as f:
         json.dump(params_dict, f, indent=2)
 
-SIM_DIR = Path("~/cuda_agent_based_sim").expanduser()
+#SIM_DIR = Path("~/cuda_agent_based_sim").expanduser()
+#SIM_DIR = Path("../cuda_agent_based_sim")  # adjust ../ count as needed
+SIM_DIR = Path(__file__).resolve().parent / "../cuda_agent_based_sim"
+SIM_DIR = SIM_DIR.resolve()
 SIM_SCRIPT = SIM_DIR / "offline_build_and_run.sh"
 def run_sim(seed: int) -> dict | None:
     """Write params, call the bash script with the given seed, return JSON."""
@@ -247,9 +250,6 @@ def fitness(x: np.ndarray,
             continue
 
         sim_before, sim_after = extract_hit_stats(data)
-        log.info("[eval %d] params: %s", _eval_counter, ...)
-        log.info("[eval %d] hit_rate=%.2f  n_before=%d", _eval_counter, len(sim_before)/n_agents, len(sim_before))
-
 
         if len(sim_before) < 2 or len(sim_after) < 2:
                     log.warning("  seed %d: too few hitting agents (%d before, %d after)",
