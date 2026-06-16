@@ -235,10 +235,6 @@ def fitness(x: np.ndarray,
 
     params_dict = dict(zip(PARAM_NAMES, x.tolist()))
     write_params(params_dict)
-
-    log.info("[eval %d] params: %s", _eval_counter, ...)
-    log.info("[eval %d] hit_rate=%.2f  n_before=%d", _eval_counter, len(sim_before)/n_agents, len(sim_before))
-
     log.info("[eval %d] params: %s",
              _eval_counter,
              "  ".join(f"{k}={v:.4f}" for k, v in params_dict.items()))
@@ -251,13 +247,16 @@ def fitness(x: np.ndarray,
             continue
 
         sim_before, sim_after = extract_hit_stats(data)
+        log.info("[eval %d] params: %s", _eval_counter, ...)
+        log.info("[eval %d] hit_rate=%.2f  n_before=%d", _eval_counter, len(sim_before)/n_agents, len(sim_before))
+
 
         if len(sim_before) < 2 or len(sim_after) < 2:
-            log.warning("  seed %d: too few hitting agents (%d before, %d after)",
-                        seed, len(sim_before), len(sim_after))
-            # penalise — no agents reached the odour
-            seed_scores.append(1.0)
-            continue
+                    log.warning("  seed %d: too few hitting agents (%d before, %d after)",
+                                seed, len(sim_before), len(sim_after))
+                    # penalise — no agents reached the odour
+                    seed_scores.append(1.0)
+                    continue
 
         w_before = wasserstein_distance(real_before, sim_before)
         w_after  = wasserstein_distance(real_after,  sim_after)
