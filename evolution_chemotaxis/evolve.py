@@ -96,12 +96,8 @@ log = logging.getLogger(__name__)
 
 # ── diffusion helpers (keep in sync with your utils) ─────────────────────────
 
-def diffusion_profile_distance(r: float, t: float,
-                               D: float = 1.0, Q: float = 1.0) -> float:
-    """Gaussian diffusion concentration at distance r at time t."""
-    if t <= 0:
-        return 0.0
-    return Q / (4 * np.pi * D * t) * np.exp(-(r ** 2) / (4 * D * t))
+def diffusion_profile_distance(distance_to_odor, t, D=2.52e-2, Cmax = 0.01):
+    return Cmax * np.exp(-distance_to_odor**2/(4*D*t)) /(4*np.pi*D*t) if t>0 else 0.0
 
 
 def compute_C_trace(xy_mm: np.ndarray, odor_orig: tuple,
@@ -194,7 +190,6 @@ def run_sim(seed: int) -> dict | None:
     env["SIM_SEED"] = str(seed)
 
     try:
-        print(f"running {str(SIM_SCRIPT)}")
         result = subprocess.run(
             [str(SIM_SCRIPT)],   # absolute path, no ambiguity
             env=env,
@@ -216,6 +211,7 @@ def run_sim(seed: int) -> dict | None:
 
     try:
         with open(SIM_OUTPUT_JSON) as f:
+            print(f"reading from {SIM_OUTPUT_JSON}")
             return json.load(f)
     except Exception as e:
         log.warning("Could not read sim output (seed=%d): %s", seed, e)
@@ -251,6 +247,8 @@ def fitness(x: np.ndarray,
             continue
 
         sim_before, sim_after = extract_hit_stats(data)
+        #print(f"[eval {_eval_counter}] n_before={len(sim_before)}  mean={np.mean(sim_before):.4f}  hit_rate={len(sim_before)/data['positions'].shape[0]:.2f}")
+        #plot boxplot of sim
 
         if len(sim_before) < 2 or len(sim_after) < 2:
                     log.warning("  seed %d: too few hitting agents (%d before, %d after)",
