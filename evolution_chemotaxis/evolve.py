@@ -236,6 +236,9 @@ def fitness(x: np.ndarray,
     params_dict = dict(zip(PARAM_NAMES, x.tolist()))
     write_params(params_dict)
 
+    log.info("[eval %d] params: %s", _eval_counter, ...)
+    log.info("[eval %d] hit_rate=%.2f  n_before=%d", _eval_counter, len(sim_before)/n_agents, len(sim_before))
+
     log.info("[eval %d] params: %s",
              _eval_counter,
              "  ".join(f"{k}={v:.4f}" for k, v in params_dict.items()))
