@@ -183,7 +183,7 @@ def write_params(params_dict: dict, path: str = PARAMS_JSON) -> None:
 
 #SIM_DIR = Path("~/cuda_agent_based_sim").expanduser()
 #SIM_DIR = Path("../cuda_agent_based_sim")  # adjust ../ count as needed
-SIM_DIR = Path(__file__).resolve().parent / "../cuda_agent_based_sim"
+SIM_DIR = Path(__file__).resolve().parent #/ "../cuda_agent_based_sim"
 SIM_DIR = SIM_DIR.resolve()
 SIM_SCRIPT = SIM_DIR / "offline_build_and_run.sh"
 def run_sim(seed: int) -> dict | None:
