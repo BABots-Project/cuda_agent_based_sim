@@ -55,8 +55,9 @@ DE_WORKERS   = 1     # set to -1 to use all CPU cores (each worker runs N_SEEDS 
 DE_SEED      = 42
 
 # Weight of "before hit" vs "after hit" Wasserstein distances in the total loss
-W_BEFORE = 0.5
-W_AFTER  = 0.5
+W_BEFORE = 0.33
+W_AFTER  = 0.33
+W_PROPORTION = 0.33
 
 # Odor hit distance threshold (mm)
 HIT_DIST_MM = 5.0
@@ -211,7 +212,7 @@ def run_sim(seed: int) -> dict | None:
 
     try:
         with open(SIM_OUTPUT_JSON) as f:
-            print(f"reading from {SIM_OUTPUT_JSON}")
+            #print(f"reading from {SIM_OUTPUT_JSON}")
             return json.load(f)
     except Exception as e:
         log.warning("Could not read sim output (seed=%d): %s", seed, e)
@@ -259,10 +260,11 @@ def fitness(x: np.ndarray,
 
         w_before = wasserstein_distance(real_before, sim_before)
         w_after  = wasserstein_distance(real_after,  sim_after)
-        score    = W_BEFORE * w_before + W_AFTER * w_after
+        hit_proportion = 1.0 - len(sim_before) / np.array(data['positions']).shape[0]
+        score    = W_BEFORE * w_before + W_AFTER * w_after + W_PROPORTION * hit_proportion
         seed_scores.append(score)
-        log.info("  seed %d: W_before=%.4f  W_after=%.4f  score=%.4f",
-                 seed, w_before, w_after, score)
+        log.info("  seed %d: W_before=%.4f  W_after=%.4f non-hit=%.4f score=%.4f",
+                 seed, w_before, w_after, hit_proportion, score)
 
     if not seed_scores:
         log.warning("  all seeds failed — returning penalty 1.0")
