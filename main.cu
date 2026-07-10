@@ -38,6 +38,7 @@ int main(int argc, char* argv[]) {
     const char* p_roam_filename = "/state_estimations/p_roam_all_conditions.json";
 	const char* duration_betaprime_params_filename = "/state_estimations/duration_params.json";
     const char* joint_distribution_file_name = "/state_estimations/joint_distributions_off_food.json";
+    const char* method_name                  = "HDBSCAN";
 
     //int seed = argc > 1 ? atoi(argv[1]) : SEED;
     const char* output_dir = "/outputs";
@@ -52,6 +53,10 @@ int main(int argc, char* argv[]) {
             exit_params_filename = argv[++i];
         else if (strcmp(argv[i], "--l2") == 0 && i+1 < argc)
             transition_params_filename = argv[++i];
+        else if (strcmp(argv[i], "--joint") == 0 && i+1 < argc)
+            joint_distribution_file_name = argv[++i];
+        else if (strcmp(argv[i], "--method") == 0 && i+1 < argc)
+            method_name = argv[++i];
     }
 
     // create output dir only if length is greater than 0 (i.e. if it was provided as an argument)
@@ -87,24 +92,26 @@ int main(int argc, char* argv[]) {
 	auto* dc = new float[WORM_COUNT * N_STEPS * N_STATES * N_STATES]; // Matrix to store dc_int[tau] for each agent at each timestep for each state transition
 	auto* c = new float[WORM_COUNT * N_STEPS]; // Matrix to store chemical concentrations for each agent at each timestep
 	float frequencies_host[N_STATES];
-    int agent_id = 0;
     char target_json[256];
     char label_sequence_filename[256];
-    if (false && argc >= 4) { //first is output dir, second is seed, last, if available, is agent id for single agent logging
-        agent_id = atoi(argv[1]);
-        snprintf(target_json, sizeof(target_json), "/sim/simulated_worm_%d.json", agent_id);
+    int agent_id = -1;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--agent") == 0 && i+1 < argc)
+            agent_id = atoi(argv[++i]);
+    }
+
+    if (agent_id >= 0) {
+        printf("agent id: %d\n", agent_id);
+        snprintf(target_json, sizeof(target_json),
+                 "/sim/simulated_worm_%d.json", agent_id);
         snprintf(label_sequence_filename, sizeof(label_sequence_filename),
                  "/state_estimations/off_food_label_sequences/worm_%d_labels.json", agent_id);
-
-        cudaMemcpyToSymbol(d_agent_kappas, agent_kappas, sizeof(agent_kappas));
-        cudaMemcpyToSymbol(d_agent_periods, agent_periods, sizeof(agent_periods));
-        cudaMemcpyToSymbol(d_agent_amplitudes, agent_amplitudes, sizeof(agent_amplitudes));
-      }
-    else{
+        cudaMemcpyToSymbol(d_agent_kappas,      agent_kappas,     sizeof(agent_kappas));
+        cudaMemcpyToSymbol(d_agent_periods,     agent_periods,    sizeof(agent_periods));
+        cudaMemcpyToSymbol(d_agent_amplitudes,  agent_amplitudes, sizeof(agent_amplitudes));
+    } else {
         snprintf(target_json, sizeof(target_json), "/sim/auto_agents_100_all_data.json");
-        //snprintf(label_sequence_filename, sizeof(label_sequence_filename),"/state_estimations/off_food_label_sequences/worm_45_labels.json");
-
-     }
+    }
 	DurationLognormalHost duration_lognormal_params_host[N_STATES], *h_roaming_duration = new DurationLognormalHost;
 	StateParams* d_params = nullptr;
 	load_distributions(
@@ -112,8 +119,7 @@ int main(int argc, char* argv[]) {
     joint_distribution_file_name,
     N_STATES,
     &d_params);
-
-
+    printf("loading joint distribution: %s\n", joint_distribution_file_name);
 
     printf("Allocating memory on device...\n");
     cudaMalloc(&d_agents, size);
@@ -149,15 +155,14 @@ int main(int argc, char* argv[]) {
     load_transition_factors(h_transition_factors, transition_factors_filename);
     printf("Uploading transition factors to device...\n");
     upload_transition_factors(h_transition_factors);
-    /*printf("Loading bias data from file...\n");
-    load_transition_biases(h_biases, bias_filename);
-    printf("Uploading bias data to device...\n");
-    upload_biases(h_biases);
-    load_duration_data(duration_lognormal_params_host, duration_lognormal_params_filename, h_roaming_duration);
-    upload_duration_data(duration_lognormal_params_host, h_roaming_duration);*/
+
     WormLabelSequence seq;
-	if(agent_id!=0){
+	if(agent_id>=0){
         seq = load_worm_labels_to_device(label_sequence_filename);
+        if (!seq.d_labels) {
+            fprintf(stderr, "Failed to load labels for agent %d\n", agent_id);
+            return 1;
+        }
     }
     cudaMemcpyToSymbol(odor_x0, &h_odor_x0, sizeof(float));
     cudaMemcpyToSymbol(odor_y0, &h_odor_y0, sizeof(float));
@@ -165,39 +170,45 @@ int main(int argc, char* argv[]) {
 
     dim3 gridSize((N + BLOCK_SIZE - 1) / BLOCK_SIZE, (N + BLOCK_SIZE - 1) / BLOCK_SIZE);
     dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
-
+    if(agent_id >= 0){
+        updateAgentStateDeterministic<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(
+                d_agents, seq.d_labels, seq.length, 0);
+        cudaDeviceSynchronize();
+    }
     for (int i = 0; i < N_STEPS; ++i) {
         //printf("Step %d\n", i);
-        moveAgentsCollective<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, WORM_COUNT, i, d_params);
+        //moveAgentsCollective<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, WORM_COUNT, i, d_params);
+        //printf("moving\n");
+        moveAgents<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, WORM_COUNT, i, d_params);
+
         get_last_error();
         cudaDeviceSynchronize();
         cudaMemcpy(h_agents, d_agents, size, cudaMemcpyDeviceToHost);
-
         for (int j = 0; j < WORM_COUNT; ++j) {
             positions[(i * WORM_COUNT + j) * 2] = h_agents[j].x;
             positions[(i * WORM_COUNT + j) * 2 + 1] = h_agents[j].y;
 
             angles[i * WORM_COUNT + j] = h_agents[j].angle;
-
-            velocities[i * WORM_COUNT + j] = h_agents[j].speed;
-
             sub_states[i * WORM_COUNT + j] = h_agents[j].state;
 
+            velocities[i * WORM_COUNT + j] = h_agents[j].speed;
             for (int tau = 0; tau < N_STATES; ++tau) {
-              for (int tau_next = 0; tau_next < N_STATES; ++tau_next) {
-                dc[((i * WORM_COUNT + j) * N_STATES + tau) * N_STATES + tau_next] = h_agents[j].dc_int[tau * N_STATES + tau_next];
-              }
+                for (int tau_next = 0; tau_next < N_STATES; ++tau_next) {
+                    dc[((i * WORM_COUNT + j) * N_STATES + tau) * N_STATES + tau_next] = h_agents[j].dc_int[tau * N_STATES + tau_next];
+                }
 
-            //dc[i * WORM_COUNT + j] = h_agents[j].dc_int[0];
-            c[i * WORM_COUNT + j] = h_agents[j].c[0];
+                //dc[i * WORM_COUNT + j] = h_agents[j].dc_int[0];
+                c[i * WORM_COUNT + j] = h_agents[j].c[0];
+            }
         }
-        }
-        //printf("Updating agent state\n");
+        //printf("Updating agent state ");
         //updateAgentState<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, i, WORM_COUNT, d_params);
-        if(agent_id!=0){
+        if(agent_id>=0){
+            //printf(" sequentially\n");
             updateAgentStateDeterministic<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(
-            d_agents, seq.d_labels, seq.length, i);}
+            d_agents, seq.d_labels, seq.length, i+1);}
         else{
+            //printf("collectively\n");
             updateAgentStateCollective<<<(WORM_COUNT + BLOCK_SIZE - 1) / BLOCK_SIZE, BLOCK_SIZE>>>(d_agents, d_curand_states, i, WORM_COUNT, d_params);
         }
         cudaDeviceSynchronize();
@@ -227,9 +238,10 @@ int main(int argc, char* argv[]) {
         avg_neighbors += (float)h_neighbor_sum[i] / h_timestep_count;
     avg_neighbors /= WORM_COUNT;
     printf("overall average neighbors per agent: %.2f\n", avg_neighbors);
-    /*if(LOG_GENERIC_TARGET_DATA) {
+    if(LOG_GENERIC_TARGET_DATA) {
+        printf("ACTUAL LOGGING TO %s\n", target_json);
         saveAllDataToJSON(target_json, positions, velocities, angles, h_agents ,WORM_COUNT, N_STEPS, sub_states, dc, c, avg_neighbors);
-    }*/
+    }
 
     saveOnlyAvgNeighbors(output_path, avg_neighbors);
     printf("Logging complete to %s\n", output_path);

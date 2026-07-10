@@ -30,11 +30,11 @@ docker image prune -f
 
 echo "Running container with GPU support..."
 echo "Running experiments for agent IDs 37 to 45..."
-for i in $(seq 37 45); do
+for i in $(seq 43 45); do
     echo "--- Running agent $i ---"
     docker run --rm --privileged --gpus all \
         -v "$STATE_ESTIMATIONS_HOST":"$STATE_ESTIMATIONS_CONTAINER" \
         -v "$SIMULATION_HOST":"$SIMULATION_CONTAINER" \
-        "$IMAGE_NAME" "$i"
+        "$IMAGE_NAME" --agent "$i"
 done
 echo "All experiments done."

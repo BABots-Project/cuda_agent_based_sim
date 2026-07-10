@@ -114,5 +114,6 @@ def load_and_animate_agents_and_grid2(json_file_path, fps, dest_file_path="anima
 
 # Main execution
 if __name__ == "__main__":
-    base_dir = "auto_agents_100_all_data.json"
+    #base_dir = "auto_agents_100_all_data.json"
+    base_dir = "simulated_worm_43.json"
     load_and_animate_agents_and_grid2(base_dir, fps=30, dest_file_path="")

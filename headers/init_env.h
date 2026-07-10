@@ -385,6 +385,7 @@ struct Agent {
     int neighbor_count;
     int prev_neighbor_count, delta_neighbor_count;
     int occlusion_neighbor_count;
+    float run_bias;
 };
 
 struct TransitionFactorHost{
@@ -827,8 +828,7 @@ void upload_biases(TransitionBiasHost* h_biases)
 
 float agent_kappas[9] = {4.8f, 4.27f, 4.44f, 3.62f, 3.76f, 4.11f, 3.51f, 3.33f, 2.87f};
 int agent_periods[9] = {9,8,10,8,8,17,8,8,6};
-float agent_amplitudes[9] = {0.5577118459338024f, 0.6163957261155478f, 0.6065887113130718f,
-    0.5783402420511854f, 0.49842090781910037f, 0.6892492114529373f, 0.5892487546943024f};
+float agent_amplitudes[9] = {0.252f, 0.486f, 0.295f, 0.261f, 0.220f, 0.231f,  0.226f, 0.504f, 0.495f};
 
 
 __constant__ float d_agent_kappas[9];
@@ -879,11 +879,23 @@ __global__ void initAgents(Agent* agents, curandState* states, unsigned long see
         agents[id].agent_id = agent_id;
         agents[id].run_omega = 0.0f;
         agents[id].run_amp = 0.0f;
-        agents[id].kappa =3.0f;// 2.0f + 5.0f * curand_uniform(&states[id]);
-        if(agent_id>=37){
-            agents[id].run_omega = 3.0f * M_PI / d_agent_periods[agent_id - 37];
-            agents[id].run_amp = d_agent_amplitudes[agent_id - 37];
-            agents[id].kappa = d_agent_kappas[agent_id - 37];
+        agents[id].run_bias =  curand_normal(&states[id]) * 0.005f;//0.1828f ;
+        agents[id].kappa =5.0f + (16.0f - 5.0f) * curand_normal(&states[id]); // 3.0f;//
+        while(agents[id].kappa<8.0f){
+            agents[id].kappa =5.0f + (16.0f - 5.0f) * curand_normal(&states[id]);
+        }
+        //if(agent_id>=37){
+            float u =  curand_uniform(&states[id]);
+            float period = 6 + (9-6) * u;
+            agents[id].run_omega = 2.0f* M_PI / period;//2.0f * M_PI / ((float)d_agent_periods[agent_id - 37]);
+            float n = curand_normal(&states[id]);
+            agents[id].run_amp =0.02f + (0.5f - 0.02f) * n;//0.22f;// d_agent_amplitudes[agent_id - 37];
+            //agents[id].kappa = d_agent_kappas[agent_id - 37];
+        //}
+        while(agents[id].run_amp<0.02f && agents[id].run_amp>0.5f){
+            printf("reinitialising amplitude\n");
+            n = curand_normal(&states[id]);
+            agents[id].run_amp =0.02f + (0.5f - 0.02f) * n;
         }
 
         float generated_value = curand_uniform(&states[id]);
